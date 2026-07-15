@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import logo from "./assets/logo.png";
 import { 
   Plus, 
   Trash2, 
