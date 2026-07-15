@@ -1,0 +1,5 @@
+{
+  "name": "CIA Exam Paper Generator",
+  "description": "A professional tool for creating and exporting Continuous Internal Assessment exam papers with dynamic sections and PDF support.",
+  "requestFramePermissions": []
+}
