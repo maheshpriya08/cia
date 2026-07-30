@@ -73,51 +73,91 @@ const INITIAL_DATA: ExamData = {
   ]
 };
 
-const formatMathForWord = (text: string): string => {
-  if (!text) return "";
-  
-  let result = text;
-  
-  // Handle fractions: \frac{num}{den} -> (num/den)
-  result = result.replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, '($1/$2)');
-  
-  // Handle subscripts and superscripts: x^2 -> x², x_2 -> x₂
-  const superscripts: Record<string, string> = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾', 'n': 'ⁿ', 'i': 'ⁱ' };
-  const subscripts: Record<string, string> = { '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉', '+': '₊', '-': '₋', '=': '₌', '(': '₍', ')': '₎', 'a': 'ₐ', 'e': 'ₑ', 'o': 'ₒ', 'x': 'ₓ', 'h': 'ₕ', 'k': 'ₖ', 'l': 'ₗ', 'm': 'ₘ', 'n': 'ₙ', 'p': 'ₚ', 's': 'ₛ', 't': 'ₜ' };
+// Maps LaTeX-style commands to their literal symbol. Superscripts, subscripts,
+// and fractions are handled separately (see buildMathRuns) so they get real
+// Word superscript/subscript/fraction formatting instead of Unicode look-alikes.
+const MATH_SYMBOL_MAP: Record<string, string> = {
+  '\\alpha': 'α', '\\beta': 'β', '\\gamma': 'γ', '\\delta': 'δ', '\\epsilon': 'ε',
+  '\\zeta': 'ζ', '\\eta': 'η', '\\theta': 'θ', '\\iota': 'ι', '\\kappa': 'κ',
+  '\\lambda': 'λ', '\\mu': 'μ', '\\nu': 'ν', '\\xi': 'ξ', '\\pi': 'π',
+  '\\rho': 'ρ', '\\sigma': 'σ', '\\tau': 'τ', '\\upsilon': 'υ', '\\phi': 'φ',
+  '\\chi': 'χ', '\\psi': 'ψ', '\\omega': 'ω',
+  '\\Delta': 'Δ', '\\Sigma': 'Σ', '\\Omega': 'Ω', '\\Theta': 'Θ', '\\Phi': 'Φ',
+  '\\pm': '±', '\\sqrt': '√', '\\times': '×', '\\div': '÷', '\\neq': '≠',
+  '\\leq': '≤', '\\geq': '≥', '\\infty': '∞', '\\approx': '≈',
+  '\\rightarrow': '→', '\\leftarrow': '←', '\\Rightarrow': '⇒', '\\Leftarrow': '⇐',
+  '\\to': '→',
+  '\\forall': '∀', '\\exists': '∃', '\\in': '∈', '\\notin': '∉', '\\subset': '⊂',
+  '\\supset': '⊃', '\\cup': '∪', '\\cap': '∩', '\\int': '∫', '\\partial': '∂',
+  '\\sum': '∑', '\\prod': '∏', '\\lim': 'lim',
+  '\\nabla': '∇', '\\angle': '∠', '\\perp': '⊥', '\\parallel': '∥',
+  '\\cdot': '·', '\\dots': '...', '\\cdots': '...', '\\vdots': '⋮', '\\ddots': '⋱',
+  '\\{': '{', '\\}': '}', '\\$': '$', '\\%': '%', '\\&': '&', '\\_': '_',
+};
 
-  result = result.replace(/\^\{?([0-9+\-=()ni])\}?/g, (_, p1) => superscripts[p1] || `^${p1}`);
-  result = result.replace(/_\{?([0-9+\-=()aeoxhklmnpst])\}?/g, (_, p1) => subscripts[p1] || `_${p1}`);
+// Matches, in priority order: \frac{a}{b}, ^{...} / ^x, _{...} / _x,
+// a backslash command (\alpha, \sum, etc.), an escaped literal (\%, \_, ...), or a bare $ delimiter.
+const MATH_TOKEN_REGEX = /\\frac\{([^{}]*)\}\{([^{}]*)\}|\^\{([^{}]+)\}|\^([0-9A-Za-z+\-=()])|_\{([^{}]+)\}|_([0-9A-Za-z+\-=()])|(\\[a-zA-Z]+)|(\\[{}$%&_])|(\$)/g;
 
-  const replacements: Record<string, string> = {
-    '\\alpha': 'α', '\\beta': 'β', '\\gamma': 'γ', '\\delta': 'δ', '\\epsilon': 'ε',
-    '\\zeta': 'ζ', '\\eta': 'η', '\\theta': 'θ', '\\iota': 'ι', '\\kappa': 'κ',
-    '\\lambda': 'λ', '\\mu': 'μ', '\\nu': 'ν', '\\xi': 'ξ', '\\pi': 'π',
-    '\\rho': 'ρ', '\\sigma': 'σ', '\\tau': 'τ', '\\upsilon': 'υ', '\\phi': 'φ',
-    '\\chi': 'χ', '\\psi': 'ψ', '\\omega': 'ω',
-    '\\Delta': 'Δ', '\\Sigma': 'Σ', '\\Omega': 'Ω', '\\Theta': 'Θ', '\\Phi': 'Φ',
-    '\\pm': '±', '\\sqrt': '√', '\\times': '×', '\\div': '÷', '\\neq': '≠',
-    '\\leq': '≤', '\\geq': '≥', '\\infty': '∞', '\\approx': '≈',
-    '\\rightarrow': '→', '\\leftarrow': '←', '\\Rightarrow': '⇒', '\\Leftarrow': '⇐',
-    '\\forall': '∀', '\\exists': '∃', '\\in': '∈', '\\notin': '∉', '\\subset': '⊂',
-    '\\supset': '⊃', '\\cup': '∪', '\\cap': '∩', '\\int': '∫', '\\partial': '∂',
-    '\\nabla': '∇', '\\angle': '∠', '\\perp': '⊥', '\\parallel': '∥',
-    '\\cdot': '·', '\\dots': '...', '\\cdots': '...', '\\vdots': '⋮', '\\ddots': '⋱',
-    '\\{': '{', '\\}': '}', '\\$': '$', '\\%': '%', '\\&': '&', '\\_': '_',
+// Converts one line of question/answer text (which may contain simple LaTeX-style
+// math) into an array of docx TextRuns, using real superscript/subscript/fraction
+// formatting so equations line up correctly in Word, instead of Unicode substitutes.
+const buildMathRuns = (line: string, baseOptions: any = {}): InstanceType<typeof TextRun>[] => {
+  const runs: InstanceType<typeof TextRun>[] = [];
+  if (!line) return runs;
+
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  MATH_TOKEN_REGEX.lastIndex = 0;
+
+  const pushPlain = (str: string) => {
+    if (str) runs.push(new TextRun({ text: str, ...baseOptions }));
   };
 
-  // Replace symbols
-  Object.entries(replacements).forEach(([latex, unicode]) => {
-    const escaped = latex.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    result = result.replace(new RegExp(escaped, 'g'), unicode);
-  });
+  while ((match = MATH_TOKEN_REGEX.exec(line)) !== null) {
+    const [, fracNum, fracDen, supBrace, supChar, subBrace, subChar, cmd, escapedLiteral, dollar] = match;
 
-  // Remove LaTeX delimiters
-  result = result.replace(/\$\$/g, '').replace(/\$/g, '');
-  
-  // Final cleanup: remove remaining backslashes and braces
-  result = result.replace(/\\/g, '').replace(/\{/g, '').replace(/\}/g, '');
-  
-  return result.trim();
+    if (match.index > lastIndex) {
+      pushPlain(line.slice(lastIndex, match.index));
+    }
+
+    if (fracNum !== undefined) {
+      // Real stacked-looking fraction: superscript numerator / subscript denominator,
+      // joined with a fraction slash, instead of plain "(num/den)" text.
+      runs.push(new TextRun({ text: fracNum, ...baseOptions, superScript: true }));
+      runs.push(new TextRun({ text: '⁄', ...baseOptions }));
+      runs.push(new TextRun({ text: fracDen, ...baseOptions, subScript: true }));
+    } else if (supBrace !== undefined || supChar !== undefined) {
+      runs.push(new TextRun({ text: (supBrace ?? supChar) as string, ...baseOptions, superScript: true }));
+    } else if (subBrace !== undefined || subChar !== undefined) {
+      runs.push(new TextRun({ text: (subBrace ?? subChar) as string, ...baseOptions, subScript: true }));
+    } else if (cmd !== undefined) {
+      runs.push(new TextRun({ text: MATH_SYMBOL_MAP[cmd] ?? cmd.slice(1), ...baseOptions }));
+    } else if (escapedLiteral !== undefined) {
+      runs.push(new TextRun({ text: MATH_SYMBOL_MAP[escapedLiteral] ?? escapedLiteral.slice(1), ...baseOptions }));
+    }
+    // bare `$` delimiters are simply dropped
+
+    lastIndex = MATH_TOKEN_REGEX.lastIndex;
+  }
+
+  if (lastIndex < line.length) {
+    pushPlain(line.slice(lastIndex));
+  }
+
+  return runs;
+};
+
+// Splits text on newlines and renders each line with buildMathRuns, inserting
+// real line breaks between them. This replaces the old formatMathForWord +
+// renderTextWithBreaks combo used when building the Word export.
+const renderMathWithBreaks = (text: string, baseOptions: any = {}): InstanceType<typeof TextRun>[] => {
+  if (!text) return [];
+  const lines = text.split('\n');
+  return lines.flatMap((line, i) => [
+    ...buildMathRuns(line, baseOptions),
+    ...(i < lines.length - 1 ? [new TextRun({ break: 1 })] : []),
+  ]);
 };
 
 const formatDate = (dateStr: string, month?: string, year?: string) => {
@@ -413,14 +453,6 @@ export default function App() {
   };
 
   const exportWord = async () => {
-    const renderTextWithBreaks = (text: string, options: any = {}) => {
-      const lines = text.split('\n');
-      return lines.flatMap((line, i) => [
-        new TextRun({ text: line, ...options }),
-        ...(i < lines.length - 1 ? [new TextRun({ break: 1 })] : []),
-      ]);
-    };
-
     // Fetch the bundled logo asset and convert it to raw bytes for docx ImageRun
     const logoResponse = await fetch(defaultLogo);
     const logoArrayBuffer = await logoResponse.arrayBuffer();
@@ -626,7 +658,7 @@ export default function App() {
             new Paragraph({
               children: [
                 new TextRun({ text: `${globalQuestionNumber}. `, bold: true, size: 20, font: "Times New Roman" }),
-                ...renderTextWithBreaks(formatMathForWord(q.text || ""), { size: 20, font: "Times New Roman" }),
+                ...renderMathWithBreaks(q.text || "", { size: 20, font: "Times New Roman" }),
               ],
               spacing: { before: 100, after: 50 },
             })
@@ -669,7 +701,7 @@ export default function App() {
                     new TableRow({
                       children: row.map(cell => 
                         new TableCell({
-                          children: [new Paragraph({ children: [new TextRun({ text: cell, size: 18, font: "Times New Roman" })] })],
+                          children: [new Paragraph({ children: buildMathRuns(cell, { size: 18, font: "Times New Roman" }) })],
                         })
                       ),
                     })
@@ -685,7 +717,7 @@ export default function App() {
               new Paragraph({
                 children: [
                   new TextRun({ text: `   (${String.fromCharCode(97 + sqIdx)}) `, italics: true, size: 20, font: "Times New Roman" }),
-                  ...renderTextWithBreaks(formatMathForWord(sq.text || ""), { size: 20, font: "Times New Roman" }),
+                  ...renderMathWithBreaks(sq.text || "", { size: 20, font: "Times New Roman" }),
                   ...(sq.marks ? [new TextRun({ text: ` [${sq.marks}]`, bold: true, size: 20, font: "Times New Roman" })] : []),
                 ],
                 spacing: { before: 100, after: 50 },
