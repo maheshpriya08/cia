@@ -61,7 +61,7 @@ const INITIAL_DATA: ExamData = {
   date: '',
   month: MONTHS[new Date().getMonth()],
   year: new Date().getFullYear().toString(),
-  collegeName: 'SRINIVASA RAMANUJAN CENTRE, KUMBAKONAM – 612001',
+  collegeName: '',
   semester: '',
   program: PROGRAMS[0],
   logoUrl: null,
