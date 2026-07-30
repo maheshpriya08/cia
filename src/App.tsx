@@ -1484,7 +1484,7 @@ export default function App() {
                     </div>
                     
                     <h2 className="text-[12px] font-bold uppercase w-full">
-                      {examData.collegeName || 'SRINIVASA RAMANUJAN CENTRE, KUMBAKONAM – 612001'}
+                      {examData.collegeName || ''}
                     </h2>
 
                     {/* Exam Details Grid */}
