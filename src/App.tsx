@@ -23,6 +23,7 @@ import { saveAs } from 'file-saver';
 import { ExamData, ExamPart, Question, SubQuestion } from './types';
 import { cn } from './utils';
 import { MathText } from './components/MathText';
+import defaultLogo from './assets/logo.png';
 
 const PROGRAMS = [
   "B.Tech. Computer Science & Engineering",
@@ -64,7 +65,7 @@ const INITIAL_DATA: ExamData = {
   collegeName: '',
   semester: '',
   program: PROGRAMS[0],
-  logoUrl: null,
+  logoUrl: defaultLogo,
   parts: [
     { id: 'part-a', name: 'Part A', instructions: 'Answer all the questions', questionCount: 5, questionsToAnswer: 5, marksPerQuestion: 2, totalMarks: 10, questions: Array.from({ length: 5 }, (_, i) => ({ id: `q-a-${i}`, text: '', subQuestions: [], images: [], tables: [] })) },
     { id: 'part-b', name: 'Part B', instructions: 'Answer all the questions', questionCount: 4, questionsToAnswer: 4, marksPerQuestion: 4, totalMarks: 16, questions: Array.from({ length: 4 }, (_, i) => ({ id: `q-b-${i}`, text: '', subQuestions: [], images: [], tables: [] })) },
@@ -132,21 +133,10 @@ const formatDate = (dateStr: string, month?: string, year?: string) => {
 };
 
 export default function App() {
-  const [examData, setExamData] = useState<ExamData>(() => {
-    const savedLogo = localStorage.getItem('cia-exam-logo');
-    return { ...INITIAL_DATA, logoUrl: savedLogo };
-  });
+  const [examData, setExamData] = useState<ExamData>(INITIAL_DATA);
   const [activeTab, setActiveTab] = useState<'edit' | 'preview'>('edit');
   const [expandedPart, setExpandedPart] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (examData.logoUrl) {
-      localStorage.setItem('cia-exam-logo', examData.logoUrl);
-    } else {
-      localStorage.removeItem('cia-exam-logo');
-    }
-  }, [examData.logoUrl]);
 
   const handleBasicDetailsChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -163,17 +153,6 @@ export default function App() {
         return { ...prev, program: [...currentPrograms, program].join(' / ') };
       }
     });
-  };
-
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setExamData(prev => ({ ...prev, logoUrl: reader.result as string }));
-      };
-      reader.readAsDataURL(file);
-    }
   };
 
   const addPart = () => {
@@ -442,15 +421,20 @@ export default function App() {
       ]);
     };
 
+    // Fetch the bundled logo asset and convert it to raw bytes for docx ImageRun
+    const logoResponse = await fetch(defaultLogo);
+    const logoArrayBuffer = await logoResponse.arrayBuffer();
+    const logoData = new Uint8Array(logoArrayBuffer);
+
     const headerChildren = [
       // Logo
       new Paragraph({
         children: [
-          examData.logoUrl ? new ImageRun({
-            data: examData.logoUrl.split(',')[1],
+          new ImageRun({
+            data: logoData,
             transformation: { width: 100, height: 100 },
             type: 'png',
-          }) : new TextRun({ text: "[LOGO]", bold: true, size: 24 }),
+          }),
         ],
         alignment: AlignmentType.CENTER,
         spacing: { after: 100 },
@@ -1032,23 +1016,8 @@ export default function App() {
                   <div>
                     <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">College Logo</label>
                     <div className="flex items-center gap-4">
-                      {examData.logoUrl ? (
-                        <div className="relative group">
-                          <img src={examData.logoUrl} alt="Logo" className="w-12 h-12 object-contain border border-slate-200 rounded-lg" />
-                          <button 
-                            onClick={() => setExamData(prev => ({ ...prev, logoUrl: null }))}
-                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
-                      ) : (
-                        <label className="flex flex-col items-center justify-center w-12 h-12 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition-all">
-                          <ImageIcon size={20} className="text-slate-400" />
-                          <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
-                        </label>
-                      )}
-                      <span className="text-sm text-slate-500">Upload college logo (PNG/JPG)</span>
+                      <img src={defaultLogo} alt="Logo" className="w-12 h-12 object-contain border border-slate-200 rounded-lg" />
+                      <span className="text-sm text-slate-500">Default college logo</span>
                     </div>
                   </div>
                 </div>
@@ -1474,13 +1443,7 @@ export default function App() {
                   <div className="flex flex-col items-center text-center mb-2">
                     {/* Logo Area */}
                     <div className="w-full flex justify-center mb-1">
-                      {examData.logoUrl ? (
-                        <img src={examData.logoUrl} alt="Logo" className="h-20 w-auto object-contain" />
-                      ) : (
-                        <div className="h-20 w-40 bg-slate-100 flex items-center justify-center text-[8px] text-slate-400 border border-dashed border-slate-300">
-                          Logo Area
-                        </div>
-                      )}
+                      <img src={defaultLogo} alt="Logo" className="h-20 w-auto object-contain" />
                     </div>
                     
                     <h2 className="text-[12px] font-bold uppercase w-full">
