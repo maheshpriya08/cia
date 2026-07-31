@@ -11,7 +11,21 @@ import {
   Copy, 
   Image as ImageIcon,
   CheckCircle2,
-  Printer
+  Printer,
+  Bold,
+  Italic,
+  Underline,
+  List,
+  ListOrdered,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Superscript,
+  Subscript,
+  Undo2,
+  Redo2,
+  RefreshCw,
+  Sigma
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
@@ -148,9 +162,122 @@ const buildMathRuns = (line: string, baseOptions: any = {}): InstanceType<typeof
   return runs;
 };
 
+const escapeHtml = (str: string): string =>
+  (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// Same token parser as buildMathRuns, but emits HTML (<sup>/<sub>) for use in the
+// editable document view and for PDF export from that view.
+const mathLineToHtml = (line: string): string => {
+  if (!line) return '';
+  let html = '';
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  MATH_TOKEN_REGEX.lastIndex = 0;
+
+  while ((match = MATH_TOKEN_REGEX.exec(line)) !== null) {
+    const [, fracNum, fracDen, supBrace, supChar, subBrace, subChar, cmd, escapedLiteral] = match;
+
+    if (match.index > lastIndex) html += escapeHtml(line.slice(lastIndex, match.index));
+
+    if (fracNum !== undefined) {
+      html += `<sup>${escapeHtml(fracNum)}</sup>&frasl;<sub>${escapeHtml(fracDen)}</sub>`;
+    } else if (supBrace !== undefined || supChar !== undefined) {
+      html += `<sup>${escapeHtml((supBrace ?? supChar) as string)}</sup>`;
+    } else if (subBrace !== undefined || subChar !== undefined) {
+      html += `<sub>${escapeHtml((subBrace ?? subChar) as string)}</sub>`;
+    } else if (cmd !== undefined) {
+      html += escapeHtml(MATH_SYMBOL_MAP[cmd] ?? cmd.slice(1));
+    } else if (escapedLiteral !== undefined) {
+      html += escapeHtml(MATH_SYMBOL_MAP[escapedLiteral] ?? escapedLiteral.slice(1));
+    }
+
+    lastIndex = MATH_TOKEN_REGEX.lastIndex;
+  }
+
+  if (lastIndex < line.length) html += escapeHtml(line.slice(lastIndex));
+  return html;
+};
+
+const mathTextToHtml = (text: string): string =>
+  (text || '').split('\n').map(mathLineToHtml).join('<br>');
+
+// Builds the initial editable-document HTML from the current exam data. This is a
+// single-column layout (contentEditable + CSS multi-column doesn't reliably support
+// cursor navigation across columns), used to seed the "Edit Document" tab.
+const generateDocumentFromExam = (data: ExamData): string => {
+  const headerHtml = `
+    <div style="text-align:center;margin-bottom:16px;">
+      <img src="${defaultLogo}" alt="Logo" style="height:70px;margin:0 auto 8px;display:block;" />
+      <div style="font-weight:bold;text-transform:uppercase;font-size:15px;">${escapeHtml(data.collegeName || '')}</div>
+      <div style="margin-top:8px;font-size:13px;font-weight:bold;text-align:left;max-width:520px;margin-left:auto;margin-right:auto;">
+        <div style="display:flex;justify-content:space-between;"><span>Month and Year: ${escapeHtml(formatDate(data.date, data.month, data.year))}</span><span>Time: ${escapeHtml(data.duration)}</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>CIA Test: ${escapeHtml(data.examTitle)}</span><span>Max Marks: ${escapeHtml(data.maxMarks)}</span></div>
+        <div>Programme: ${escapeHtml(data.program)}</div>
+        <div style="display:flex;justify-content:space-between;"><span>Course Name: ${escapeHtml(data.courseName)}</span><span>Course Code: ${escapeHtml(data.courseCode)}</span></div>
+      </div>
+    </div>
+    <hr style="border:none;border-top:2px solid #0f172a;margin-bottom:16px;" />
+  `;
+
+  let globalNum = 0;
+  const partsHtml = data.parts.map(part => {
+    const questionsHtml = part.questions.map(q => {
+      if (!q.isOr) globalNum++;
+      const orHtml = q.isOr ? `<div style="text-align:center;font-weight:bold;text-transform:uppercase;font-size:12px;margin:6px 0;">(OR)</div>` : '';
+
+      const tablesHtml = (q.tables || []).map(table => `
+        <table style="border-collapse:collapse;width:100%;margin:8px 0;font-size:13px;">
+          <tbody>
+            ${table.rows.map(row => `<tr>${row.map(cell => `<td style="border:1px solid #0f172a;padding:5px;text-align:center;">${mathTextToHtml(cell)}</td>`).join('')}</tr>`).join('')}
+          </tbody>
+        </table>
+      `).join('');
+
+      const imagesHtml = (q.images || []).map(img => `<div style="text-align:center;margin:8px 0;"><img src="${img}" style="max-width:60%;max-height:180px;" /></div>`).join('');
+
+      const subQuestionsHtml = q.subQuestions.length > 0 ? `
+        <div style="margin-top:6px;">
+          ${q.subQuestions.map((sq, sqIdx) => `
+            <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:3px;">
+              <div style="display:flex;gap:8px;">
+                <span style="font-weight:600;min-width:20px;">(${String.fromCharCode(97 + sqIdx)})</span>
+                <span>${mathTextToHtml(sq.text)}</span>
+              </div>
+              ${sq.marks ? `<span style="font-weight:bold;white-space:nowrap;font-size:12px;">(${escapeHtml(sq.marks)})</span>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      ` : '';
+
+      return `
+        ${orHtml}
+        <div style="display:flex;gap:10px;margin-bottom:10px;">
+          <span style="font-weight:bold;min-width:22px;">${globalNum}.</span>
+          <div style="flex:1;">
+            <div>${mathTextToHtml(q.text)}</div>
+            ${tablesHtml}${imagesHtml}${subQuestionsHtml}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div style="margin-bottom:18px;">
+        <div style="text-align:center;font-weight:bold;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">${escapeHtml(part.name)}</div>
+        <div style="display:flex;justify-content:space-between;font-weight:bold;font-size:13px;margin-bottom:8px;">
+          <span>${escapeHtml(part.instructions || 'Answer all the questions')}</span>
+          <span>${part.questionsToAnswer ?? part.questionCount} x ${part.marksPerQuestion} = ${part.totalMarks} marks</span>
+        </div>
+        ${questionsHtml}
+      </div>
+    `;
+  }).join('');
+
+  return headerHtml + partsHtml;
+};
+
 // Splits text on newlines and renders each line with buildMathRuns, inserting
-// real line breaks between them. This replaces the old formatMathForWord +
-// renderTextWithBreaks combo used when building the Word export.
+// real line breaks between them. Used when building the Word export.
 const renderMathWithBreaks = (text: string, baseOptions: any = {}): InstanceType<typeof TextRun>[] => {
   if (!text) return [];
   const lines = text.split('\n');
@@ -174,9 +301,222 @@ const formatDate = (dateStr: string, month?: string, year?: string) => {
 
 export default function App() {
   const [examData, setExamData] = useState<ExamData>(INITIAL_DATA);
-  const [activeTab, setActiveTab] = useState<'edit' | 'preview'>('edit');
+  const [activeTab, setActiveTab] = useState<'edit' | 'preview' | 'document'>('edit');
   const [expandedPart, setExpandedPart] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const [documentHtml, setDocumentHtml] = useState('');
+  const editorRef = useRef<HTMLDivElement>(null);
+
+  // Seed the editable document the first time the tab is opened
+  useEffect(() => {
+    if (activeTab === 'document' && !documentHtml) {
+      setDocumentHtml(generateDocumentFromExam(examData));
+    }
+  }, [activeTab]);
+
+  // Write generated HTML into the contentEditable DOM only when it's (re)generated,
+  // never on every keystroke — the editor is otherwise uncontrolled so typing doesn't
+  // fight React re-renders or lose cursor position.
+  useEffect(() => {
+    if (editorRef.current && documentHtml) {
+      editorRef.current.innerHTML = documentHtml;
+    }
+  }, [documentHtml]);
+
+  const regenerateDocument = () => {
+    if (window.confirm('This replaces your edits in this tab with a fresh copy generated from the Exam Data tab. Continue?')) {
+      setDocumentHtml(generateDocumentFromExam(examData));
+    }
+  };
+
+  const runEditorCommand = (command: string, value?: string) => {
+    editorRef.current?.focus();
+    document.execCommand(command, false, value);
+  };
+
+  const insertSymbol = (symbol: string) => {
+    editorRef.current?.focus();
+    document.execCommand('insertText', false, symbol);
+  };
+
+  const insertFraction = () => {
+    const num = window.prompt('Numerator?', 'a');
+    if (num === null) return;
+    const den = window.prompt('Denominator?', 'b');
+    if (den === null) return;
+    editorRef.current?.focus();
+    document.execCommand('insertHTML', false, `<sup>${escapeHtml(num)}</sup>&frasl;<sub>${escapeHtml(den)}</sub>&nbsp;`);
+  };
+
+  const insertLimits = (symbol: string) => {
+    const lower = window.prompt('Lower limit? (e.g. n=1)', 'n=1');
+    if (lower === null) return;
+    const upper = window.prompt('Upper limit? (e.g. 8, leave blank if none)', '');
+    editorRef.current?.focus();
+    const html = `${symbol}<sub>${escapeHtml(lower)}</sub>${upper ? `<sup>${escapeHtml(upper)}</sup>` : ''}&nbsp;`;
+    document.execCommand('insertHTML', false, html);
+  };
+
+  const exportDocumentPDF = () => {
+    if (!editorRef.current) return;
+    const opt = {
+      margin: [12, 12, 12, 12],
+      filename: `${examData.courseCode || 'exam'}_question_paper.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
+    };
+    html2pdf().set(opt).from(editorRef.current).save();
+  };
+
+  const collectDocxRunsFromNode = (
+    node: ChildNode,
+    fmt: { bold?: boolean; italic?: boolean; underline?: boolean; superScript?: boolean; subScript?: boolean }
+  ): InstanceType<typeof TextRun>[] => {
+    const runs: InstanceType<typeof TextRun>[] = [];
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent || '';
+      if (text) {
+        runs.push(new TextRun({
+          text,
+          bold: fmt.bold,
+          italics: fmt.italic,
+          underline: fmt.underline ? {} : undefined,
+          superScript: fmt.superScript,
+          subScript: fmt.subScript,
+          font: 'Times New Roman',
+          size: 22,
+        }));
+      }
+      return runs;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return runs;
+
+    const el = node as HTMLElement;
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'br') {
+      runs.push(new TextRun({ text: '', break: 1 }));
+      return runs;
+    }
+
+    const nextFmt = { ...fmt };
+    if (tag === 'b' || tag === 'strong') nextFmt.bold = true;
+    if (tag === 'i' || tag === 'em') nextFmt.italic = true;
+    if (tag === 'u') nextFmt.underline = true;
+    if (tag === 'sup') nextFmt.superScript = true;
+    if (tag === 'sub') nextFmt.subScript = true;
+
+    el.childNodes.forEach(child => {
+      runs.push(...collectDocxRunsFromNode(child, nextFmt));
+    });
+    return runs;
+  };
+
+  const convertEditorBlockToDocx = async (
+    el: HTMLElement
+  ): Promise<(InstanceType<typeof Paragraph> | InstanceType<typeof Table>)[]> => {
+    const tag = el.tagName.toLowerCase();
+
+    if (tag === 'table') {
+      const rows: InstanceType<typeof TableRow>[] = [];
+      const trEls = Array.from(el.querySelectorAll('tr'));
+      for (const tr of trEls) {
+        const cells: InstanceType<typeof TableCell>[] = [];
+        const tdEls = Array.from(tr.querySelectorAll('td, th'));
+        for (const td of tdEls) {
+          const cellRuns = collectDocxRunsFromNode(td, {});
+          cells.push(new TableCell({
+            children: [new Paragraph({ children: cellRuns.length ? cellRuns : [new TextRun('')], alignment: AlignmentType.CENTER })],
+            margins: { top: 80, bottom: 80, left: 80, right: 80 },
+          }));
+        }
+        rows.push(new TableRow({ children: cells }));
+      }
+      return rows.length ? [new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } })] : [];
+    }
+
+    if (tag === 'img') {
+      const src = (el as HTMLImageElement).getAttribute('src') || '';
+      if (!src) return [];
+      try {
+        const resp = await fetch(src);
+        const buf = await resp.arrayBuffer();
+        return [new Paragraph({
+          children: [new ImageRun({ data: new Uint8Array(buf), transformation: { width: 220, height: 140 }, type: 'png' })],
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 120 },
+        })];
+      } catch {
+        return [];
+      }
+    }
+
+    if (tag === 'ul' || tag === 'ol') {
+      const items = Array.from(el.children).filter(c => c.tagName.toLowerCase() === 'li');
+      return items.map((li, idx) => {
+        const runs = collectDocxRunsFromNode(li, {});
+        const prefix = tag === 'ol' ? `${idx + 1}. ` : '• ';
+        return new Paragraph({
+          children: [new TextRun({ text: prefix, font: 'Times New Roman', size: 22 }), ...runs],
+          spacing: { after: 60 },
+        });
+      });
+    }
+
+    if (tag === 'hr') {
+      return [new Paragraph({
+        border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: '0f172a' } },
+        spacing: { after: 160 },
+      })];
+    }
+
+    const blockChildTags = ['div', 'p', 'table', 'ul', 'ol', 'h1', 'h2', 'h3', 'hr'];
+    const hasBlockChildren = Array.from(el.children).some(c => blockChildTags.includes(c.tagName.toLowerCase()));
+
+    if (hasBlockChildren) {
+      const results: (InstanceType<typeof Paragraph> | InstanceType<typeof Table>)[] = [];
+      for (const child of Array.from(el.childNodes)) {
+        if (child.nodeType === Node.ELEMENT_NODE) {
+          results.push(...await convertEditorBlockToDocx(child as HTMLElement));
+        } else if (child.nodeType === Node.TEXT_NODE && (child.textContent || '').trim()) {
+          results.push(new Paragraph({ children: [new TextRun({ text: child.textContent || '', font: 'Times New Roman', size: 22 })] }));
+        }
+      }
+      return results;
+    }
+
+    const runs = collectDocxRunsFromNode(el, {});
+    const isHeading = /^h[1-3]$/.test(tag);
+    const align = el.style.textAlign === 'center' ? AlignmentType.CENTER
+      : el.style.textAlign === 'right' ? AlignmentType.RIGHT
+      : AlignmentType.LEFT;
+
+    return [new Paragraph({
+      children: runs.length ? runs : [new TextRun('')],
+      alignment: align,
+      heading: isHeading ? (tag === 'h1' ? HeadingLevel.HEADING_1 : tag === 'h2' ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_3) : undefined,
+      spacing: { after: 100 },
+    })];
+  };
+
+  const exportDocumentWord = async () => {
+    if (!editorRef.current) return;
+    const blocks: (InstanceType<typeof Paragraph> | InstanceType<typeof Table>)[] = [];
+    for (const child of Array.from(editorRef.current.childNodes)) {
+      if (child.nodeType === Node.ELEMENT_NODE) {
+        blocks.push(...await convertEditorBlockToDocx(child as HTMLElement));
+      } else if (child.nodeType === Node.TEXT_NODE && (child.textContent || '').trim()) {
+        blocks.push(new Paragraph({ children: [new TextRun({ text: child.textContent || '', font: 'Times New Roman', size: 22 })] }));
+      }
+    }
+
+    const doc = new Document({
+      sections: [{ properties: {}, children: blocks.length ? blocks : [new Paragraph('')] }],
+    });
+
+    const blob = await Packer.toBlob(doc);
+    saveAs(blob, `${examData.courseCode || 'exam'}_question_paper_edited.docx`);
+  };
 
   const handleBasicDetailsChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -887,6 +1227,16 @@ export default function App() {
                   <Eye size={16} />
                   <span className="hidden sm:inline">Preview</span>
                 </button>
+                <button
+                  onClick={() => setActiveTab('document')}
+                  className={cn(
+                    "px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2",
+                    activeTab === 'document' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                  )}
+                >
+                  <FileText size={16} />
+                  <span className="hidden sm:inline">Edit Document</span>
+                </button>
               </div>
             </div>
           </div>
@@ -1453,7 +1803,7 @@ export default function App() {
               </button>
             </div>
           </div>
-        ) : (
+        ) : activeTab === 'preview' ? (
           /* Preview Mode */
           <div className="flex flex-col items-center space-y-8">
             <div 
@@ -1610,6 +1960,89 @@ export default function App() {
               </button>
               <button
                 onClick={exportWord}
+                className="bg-emerald-600 text-white px-8 py-3 rounded-xl font-semibold flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-md flex-1 md:flex-initial justify-center"
+              >
+                <FileText size={20} />
+                Download Word Format
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Edit Document Mode */
+          <div className="flex flex-col items-center space-y-6">
+            <div className="w-full max-w-4xl bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              {/* Formatting Toolbar */}
+              <div className="flex flex-wrap items-center gap-1 border-b border-slate-200 bg-slate-50 px-3 py-2">
+                <button type="button" onClick={() => runEditorCommand('bold')} className="p-2 rounded-lg hover:bg-slate-200 text-slate-700" title="Bold"><Bold size={16} /></button>
+                <button type="button" onClick={() => runEditorCommand('italic')} className="p-2 rounded-lg hover:bg-slate-200 text-slate-700" title="Italic"><Italic size={16} /></button>
+                <button type="button" onClick={() => runEditorCommand('underline')} className="p-2 rounded-lg hover:bg-slate-200 text-slate-700" title="Underline"><Underline size={16} /></button>
+                <span className="w-px h-6 bg-slate-300 mx-1" />
+                <button type="button" onClick={() => runEditorCommand('justifyLeft')} className="p-2 rounded-lg hover:bg-slate-200 text-slate-700" title="Align left"><AlignLeft size={16} /></button>
+                <button type="button" onClick={() => runEditorCommand('justifyCenter')} className="p-2 rounded-lg hover:bg-slate-200 text-slate-700" title="Align center"><AlignCenter size={16} /></button>
+                <button type="button" onClick={() => runEditorCommand('justifyRight')} className="p-2 rounded-lg hover:bg-slate-200 text-slate-700" title="Align right"><AlignRight size={16} /></button>
+                <span className="w-px h-6 bg-slate-300 mx-1" />
+                <button type="button" onClick={() => runEditorCommand('insertUnorderedList')} className="p-2 rounded-lg hover:bg-slate-200 text-slate-700" title="Bullet list"><List size={16} /></button>
+                <button type="button" onClick={() => runEditorCommand('insertOrderedList')} className="p-2 rounded-lg hover:bg-slate-200 text-slate-700" title="Numbered list"><ListOrdered size={16} /></button>
+                <span className="w-px h-6 bg-slate-300 mx-1" />
+                <button type="button" onClick={() => runEditorCommand('superscript')} className="p-2 rounded-lg hover:bg-slate-200 text-slate-700" title="Superscript"><Superscript size={16} /></button>
+                <button type="button" onClick={() => runEditorCommand('subscript')} className="p-2 rounded-lg hover:bg-slate-200 text-slate-700" title="Subscript"><Subscript size={16} /></button>
+                <span className="w-px h-6 bg-slate-300 mx-1" />
+                <button type="button" onClick={() => runEditorCommand('undo')} className="p-2 rounded-lg hover:bg-slate-200 text-slate-700" title="Undo"><Undo2 size={16} /></button>
+                <button type="button" onClick={() => runEditorCommand('redo')} className="p-2 rounded-lg hover:bg-slate-200 text-slate-700" title="Redo"><Redo2 size={16} /></button>
+                <span className="w-px h-6 bg-slate-300 mx-1" />
+                <button type="button" onClick={regenerateDocument} className="p-2 rounded-lg hover:bg-slate-200 text-slate-700 flex items-center gap-1.5 text-xs font-medium" title="Regenerate from Exam Data tab">
+                  <RefreshCw size={14} /> Regenerate
+                </button>
+              </div>
+
+              {/* Math Symbols Panel */}
+              <div className="flex flex-wrap items-center gap-1 border-b border-slate-200 bg-white px-3 py-2">
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-1 flex items-center gap-1"><Sigma size={12} /> Math</span>
+                {['α','β','γ','δ','θ','λ','μ','π','σ','φ','Δ','Σ','Ω','±','×','÷','≤','≥','≠','≈','∞','√','∫','∂','∇','→','∈','∪','∩','·'].map(sym => (
+                  <button
+                    key={sym}
+                    type="button"
+                    onClick={() => insertSymbol(sym)}
+                    className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 text-sm"
+                    title={`Insert ${sym}`}
+                  >
+                    {sym}
+                  </button>
+                ))}
+                <span className="w-px h-6 bg-slate-300 mx-1" />
+                <button type="button" onClick={insertFraction} className="px-2 h-7 rounded-md hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 text-xs font-medium" title="Insert fraction">
+                  a⁄b
+                </button>
+                <button type="button" onClick={() => insertLimits('Σ')} className="px-2 h-7 rounded-md hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 text-xs font-medium" title="Insert summation with limits">
+                  Σ limits
+                </button>
+                <button type="button" onClick={() => insertLimits('∫')} className="px-2 h-7 rounded-md hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 text-xs font-medium" title="Insert integral with limits">
+                  ∫ limits
+                </button>
+              </div>
+
+              {/* Editable Document */}
+              <div className="bg-slate-100 p-4 sm:p-8 overflow-x-auto">
+                <div
+                  ref={editorRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  className="bg-white mx-auto shadow-sm font-serif text-slate-900 text-[13px] leading-relaxed outline-none focus:ring-2 focus:ring-indigo-300 rounded-sm"
+                  style={{ width: '210mm', minHeight: '297mm', padding: '18mm' }}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-4">
+              <button
+                onClick={exportDocumentPDF}
+                className="bg-white border border-slate-200 text-slate-700 px-6 py-3 rounded-xl font-semibold flex items-center gap-2 hover:bg-slate-50 transition-all shadow-sm"
+              >
+                <Printer size={20} />
+                Download PDF
+              </button>
+              <button
+                onClick={exportDocumentWord}
                 className="bg-emerald-600 text-white px-8 py-3 rounded-xl font-semibold flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-md flex-1 md:flex-initial justify-center"
               >
                 <FileText size={20} />
