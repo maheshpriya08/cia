@@ -201,49 +201,67 @@ const mathLineToHtml = (line: string): string => {
 const mathTextToHtml = (text: string): string =>
   (text || '').split('\n').map(mathLineToHtml).join('<br>');
 
-// Builds the initial editable-document HTML from the current exam data. This is a
-// single-column layout (contentEditable + CSS multi-column doesn't reliably support
-// cursor navigation across columns), used to seed the "Edit Document" tab.
+// Builds the initial editable-document HTML from the current exam data, mirroring
+// the exact markup/classes used by the Preview tab (same two-column layout, same
+// paper size) so the editable view looks identical to Preview.
 const generateDocumentFromExam = (data: ExamData): string => {
   const headerHtml = `
-    <div style="text-align:center;margin-bottom:16px;">
-      <img src="${defaultLogo}" alt="Logo" style="height:70px;margin:0 auto 8px;display:block;" />
-      <div style="font-weight:bold;text-transform:uppercase;font-size:15px;">${escapeHtml(data.collegeName || '')}</div>
-      <div style="margin-top:8px;font-size:13px;font-weight:bold;text-align:left;max-width:520px;margin-left:auto;margin-right:auto;">
-        <div style="display:flex;justify-content:space-between;"><span>Month and Year: ${escapeHtml(formatDate(data.date, data.month, data.year))}</span><span>Time: ${escapeHtml(data.duration)}</span></div>
-        <div style="display:flex;justify-content:space-between;"><span>CIA Test: ${escapeHtml(data.examTitle)}</span><span>Max Marks: ${escapeHtml(data.maxMarks)}</span></div>
-        <div>Programme: ${escapeHtml(data.program)}</div>
-        <div style="display:flex;justify-content:space-between;"><span>Course Name: ${escapeHtml(data.courseName)}</span><span>Course Code: ${escapeHtml(data.courseCode)}</span></div>
+    <div class="break-inside-avoid mb-4 border-b border-slate-900 pb-3">
+      <div class="flex flex-col items-center text-center mb-2">
+        <div class="w-full flex justify-center mb-1">
+          <img src="${defaultLogo}" alt="Logo" class="h-20 w-auto object-contain" />
+        </div>
+        <h2 class="text-[12px] font-bold uppercase w-full">${escapeHtml(data.collegeName || '')}</h2>
+        <div class="w-full mt-1.5 text-[11px] leading-tight space-y-0.5 font-bold">
+          <div class="flex justify-between">
+            <div class="text-left"><span>Month and Year:</span> ${escapeHtml(formatDate(data.date, data.month, data.year))}</div>
+            <div class="text-right"><span>Time:</span> ${escapeHtml(data.duration)}</div>
+          </div>
+          <div class="flex justify-between">
+            <div class="text-left"><span>CIA Test:</span> ${escapeHtml(data.examTitle)}</div>
+            <div class="text-right"><span>Max Marks:</span> ${escapeHtml(data.maxMarks)}</div>
+          </div>
+          <div class="text-left"><span>Programme:</span> ${escapeHtml(data.program)}</div>
+          <div class="flex justify-between">
+            <div class="text-left"><span>Course Name:</span> ${escapeHtml(data.courseName)}</div>
+            <div class="text-right"><span>Course Code:</span> ${escapeHtml(data.courseCode)}</div>
+          </div>
+        </div>
       </div>
     </div>
-    <hr style="border:none;border-top:2px solid #0f172a;margin-bottom:16px;" />
   `;
 
   let globalNum = 0;
   const partsHtml = data.parts.map(part => {
     const questionsHtml = part.questions.map(q => {
       if (!q.isOr) globalNum++;
-      const orHtml = q.isOr ? `<div style="text-align:center;font-weight:bold;text-transform:uppercase;font-size:12px;margin:6px 0;">(OR)</div>` : '';
+      const orHtml = q.isOr ? `<div class="text-center font-bold py-0.5 uppercase tracking-widest text-[11px]">(OR)</div>` : '';
 
       const tablesHtml = (q.tables || []).map(table => `
-        <table style="border-collapse:collapse;width:100%;margin:8px 0;font-size:13px;">
-          <tbody>
-            ${table.rows.map(row => `<tr>${row.map(cell => `<td style="border:1px solid #0f172a;padding:5px;text-align:center;">${mathTextToHtml(cell)}</td>`).join('')}</tr>`).join('')}
-          </tbody>
-        </table>
+        <div class="my-1 overflow-x-auto">
+          <table class="w-full border-collapse border border-slate-900 text-[11px]">
+            <tbody>
+              ${table.rows.map(row => `<tr>${row.map(cell => `<td class="border border-slate-900 p-1 text-center">${mathTextToHtml(cell)}</td>`).join('')}</tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
       `).join('');
 
-      const imagesHtml = (q.images || []).map(img => `<div style="text-align:center;margin:8px 0;"><img src="${img}" style="max-width:60%;max-height:180px;" /></div>`).join('');
+      const imagesHtml = (q.images || []).map((img, imgIdx) => `
+        <div class="my-1 flex justify-center">
+          <img src="${img}" alt="Diagram ${imgIdx + 1}" class="max-w-full max-h-32 object-contain" />
+        </div>
+      `).join('');
 
       const subQuestionsHtml = q.subQuestions.length > 0 ? `
-        <div style="margin-top:6px;">
+        <div class="mt-1 space-y-0.5">
           ${q.subQuestions.map((sq, sqIdx) => `
-            <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:3px;">
-              <div style="display:flex;gap:8px;">
-                <span style="font-weight:600;min-width:20px;">(${String.fromCharCode(97 + sqIdx)})</span>
-                <span>${mathTextToHtml(sq.text)}</span>
+            <div class="flex gap-2 justify-between">
+              <div class="flex gap-2">
+                <span class="font-medium min-w-[16px] text-[12px]">(${String.fromCharCode(97 + sqIdx)})</span>
+                <div class="text-[12px]">${mathTextToHtml(sq.text)}</div>
               </div>
-              ${sq.marks ? `<span style="font-weight:bold;white-space:nowrap;font-size:12px;">(${escapeHtml(sq.marks)})</span>` : ''}
+              ${sq.marks ? `<span class="text-[11px] font-bold whitespace-nowrap">(${escapeHtml(sq.marks)})</span>` : ''}
             </div>
           `).join('')}
         </div>
@@ -251,29 +269,36 @@ const generateDocumentFromExam = (data: ExamData): string => {
 
       return `
         ${orHtml}
-        <div style="display:flex;gap:10px;margin-bottom:10px;">
-          <span style="font-weight:bold;min-width:22px;">${globalNum}.</span>
-          <div style="flex:1;">
-            <div>${mathTextToHtml(q.text)}</div>
-            ${tablesHtml}${imagesHtml}${subQuestionsHtml}
+        <div class="relative break-inside-avoid">
+          <div class="flex gap-2">
+            <span class="font-bold min-w-[16px] text-[13px]">${globalNum}.</span>
+            <div class="flex-1 space-y-1">
+              <div class="text-[13px] leading-relaxed">${mathTextToHtml(q.text)}</div>
+              ${tablesHtml}${imagesHtml}${subQuestionsHtml}
+            </div>
           </div>
         </div>
       `;
     }).join('');
 
     return `
-      <div style="margin-bottom:18px;">
-        <div style="text-align:center;font-weight:bold;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">${escapeHtml(part.name)}</div>
-        <div style="display:flex;justify-content:space-between;font-weight:bold;font-size:13px;margin-bottom:8px;">
-          <span>${escapeHtml(part.instructions || 'Answer all the questions')}</span>
-          <span>${part.questionsToAnswer ?? part.questionCount} x ${part.marksPerQuestion} = ${part.totalMarks} marks</span>
+      <div class="space-y-1 mb-2">
+        <div class="text-center mb-0.5">
+          <h3 class="text-sm font-bold uppercase tracking-widest">${escapeHtml(part.name)}</h3>
         </div>
-        ${questionsHtml}
+        <div class="flex justify-between items-end text-[12px] font-bold mb-1">
+          <p>${escapeHtml(part.instructions || 'Answer all the questions')}</p>
+          <p>${part.questionsToAnswer ?? part.questionCount} x ${part.marksPerQuestion} = ${part.totalMarks} marks</p>
+        </div>
+        <div class="space-y-1">
+          ${questionsHtml}
+        </div>
       </div>
     `;
   }).join('');
 
-  return headerHtml + partsHtml;
+  // Same two-column flow container the Preview tab uses
+  return `<div class="columns-2 [column-fill:auto] h-full gap-[7.9mm]">${headerHtml}${partsHtml}</div>`;
 };
 
 // Splits text on newlines and renders each line with buildMathRuns, inserting
@@ -360,11 +385,11 @@ export default function App() {
   const exportDocumentPDF = () => {
     if (!editorRef.current) return;
     const opt = {
-      margin: [12, 12, 12, 12],
+      margin: 0,
       filename: `${examData.courseCode || 'exam'}_question_paper.pdf`,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true },
-      jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
+      jsPDF: { unit: 'mm' as const, format: 'letter' as const, orientation: 'landscape' as const },
     };
     html2pdf().set(opt).from(editorRef.current).save();
   };
@@ -2021,14 +2046,21 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Editable Document */}
+              {/* Editable Document — same paper size & two-column layout as Preview */}
               <div className="bg-slate-100 p-4 sm:p-8 overflow-x-auto">
                 <div
                   ref={editorRef}
                   contentEditable
                   suppressContentEditableWarning
-                  className="bg-white mx-auto shadow-sm font-serif text-slate-900 text-[13px] leading-relaxed outline-none focus:ring-2 focus:ring-indigo-300 rounded-sm"
-                  style={{ width: '210mm', minHeight: '297mm', padding: '18mm' }}
+                  className="bg-white exam-paper-shadow font-serif text-slate-900 overflow-hidden mx-auto outline-none focus:ring-2 focus:ring-indigo-300"
+                  style={{
+                    width: '279mm',
+                    height: '216mm',
+                    paddingTop: '14.3mm',
+                    paddingBottom: '7.9mm',
+                    paddingLeft: '9.5mm',
+                    paddingRight: '7.9mm'
+                  }}
                 />
               </div>
             </div>
