@@ -1239,7 +1239,7 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
           questionElements.push(
             new Paragraph({
               children: [
-                new TextRun({ text: `${globalQuestionNumber}. `, bold: true, size: 20, font: "Times New Roman" }),
+                new TextRun({ text: `${globalQuestionNumber}. `, bold: false, size: 20, font: "Times New Roman" }),
                 ...renderRich(q.text || "", { size: 20, font: "Times New Roman" }),
               ],
               spacing: { before: 100, after: 50 },
