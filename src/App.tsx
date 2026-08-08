@@ -1183,7 +1183,7 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
               children: [
                 new TextRun({
                   text: part.name.toUpperCase(),
-                  bold: true,
+                  bold: false,
                   size: 24,
                   font: "Times New Roman",
                 }),
