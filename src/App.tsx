@@ -637,7 +637,7 @@ export default function App() {
   }, [examData.logoUrl]);
 
   // If no logo has been uploaded, fall back to the one bundled in /public
-  // (logo.png -> logo.jpg -> logo.svg) so the header always opens with a logo.
+  // (logo.png -> logo.jpg -> logo.png) so the header always opens with a logo.
   useEffect(() => {
     let cancelled = false;
     if (examData.logoUrl) return;
