@@ -2300,7 +2300,7 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
                   and on paper.
                 */
                 const windowW = isDuplicated ? COL_W : 2 * COL_W + PAGE.gap;
-                const flowW = Math.max(1, columnCount) * (COL_W + PAGE.gap);
+                const flowW = Math.max(1, columnCount) * COL_W + Math.max(0, columnCount - 1) * PAGE.gap;
                 const offset = isDuplicated ? 0 : sheetIndex * 2 * (COL_W + PAGE.gap);
 
                 const flow = (shift: number) => (
