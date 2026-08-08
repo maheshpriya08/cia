@@ -493,7 +493,7 @@ export default function App() {
                                   protected from splitting. */}
                               <div className="relative">
                                 <div className="flex gap-2">
-                                  <span className="font-bold min-w-[16px] text-[13px]">{n}.</span>
+                                  <span className="font-normal min-w-[16px] text-[13px]">{n}.</span>
                                   <div className="flex-1 space-y-1">
                                     <div className="text-[13px] leading-relaxed">
                                       <MathText text={q.text} />
