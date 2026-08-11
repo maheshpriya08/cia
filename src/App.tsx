@@ -11,7 +11,8 @@ import {
   Copy, 
   Image as ImageIcon,
   CheckCircle2,
-  Printer
+  Printer,
+  Table2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
@@ -31,6 +32,9 @@ import {
   VoiceField,
 } from './components/VoiceInput';
 import { loadBundledLogo, fileToPngDataUrl } from './lib/logo';
+import { MM, PAGE, USABLE_H, COL_W, mm, countColumns } from './lib/page';
+import { RbtTab } from './components/RbtTab';
+import type { RbtMeta } from './types';
 
 const PROGRAMS = [
   "B.Tech. Computer Science & Engineering",
@@ -54,22 +58,7 @@ const PROGRAMS = [
 /* ------------------------------------------------------------------ */
 /* Page geometry - A4 landscape, two sequential columns                 */
 /* ------------------------------------------------------------------ */
-const MM = 96 / 25.4;                 // CSS px per millimetre at 96dpi
-
-const PAGE = {
-  width: 297,                          // A4 landscape
-  height: 210,
-  padTop: 12,
-  padBottom: 10,
-  padLeft: 10,
-  padRight: 10,
-  gap: 8,
-};
-const USABLE_H = PAGE.height - PAGE.padTop - PAGE.padBottom;                 // 188mm
-/* One COLUMN is one page of the paper; a sheet holds two side by side. */
-const COL_W = (PAGE.width - PAGE.padLeft - PAGE.padRight - PAGE.gap) / 2;    // 134.5mm
-
-const mm = (v: number) => `${v}mm`;
+/* Moved to lib/page.ts so the RBT sheet fragments against the same box. */
 
 /** Word measures in twips: 1mm = 56.6929 twips. */
 const TWIPS_PER_MM = 56.6929;
@@ -374,7 +363,7 @@ export default function App() {
       return raw ? (JSON.parse(raw).savedAt ?? null) : null;
     } catch { return null; }
   });
-  const [activeTab, setActiveTab] = useState<'edit' | 'preview'>('edit');
+  const [activeTab, setActiveTab] = useState<'edit' | 'preview' | 'rbt'>('edit');
   const [expandedPart, setExpandedPart] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -567,13 +556,7 @@ export default function App() {
    * us the total directly.
    */
   const paginate = useCallback(() => {
-    const host = measureRef.current;
-    if (!host) return;
-    const colPx = COL_W * MM;
-    const gapPx = PAGE.gap * MM;
-    const total = host.scrollWidth;
-    const count = Math.max(1, Math.round((total + gapPx) / (colPx + gapPx)));
-    setColumnCount(count);
+    setColumnCount(countColumns(measureRef.current));
   }, []);
 
   useLayoutEffect(() => { paginate(); }, [previewBlocks, paginate, activeTab]);
@@ -1651,6 +1634,16 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
                   <Eye size={16} />
                   <span className="hidden sm:inline">Preview</span>
                 </button>
+                <button
+                  onClick={() => setActiveTab('rbt')}
+                  className={cn(
+                    "px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2",
+                    activeTab === 'rbt' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                  )}
+                >
+                  <Table2 size={16} />
+                  <span className="hidden sm:inline">RBT</span>
+                </button>
               </div>
             </div>
           </div>
@@ -1659,9 +1652,11 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
 
       <main className={cn(
         "mx-auto px-4 sm:px-6 lg:px-8 py-8",
-        activeTab === 'preview' ? "max-w-[1300px]" : "max-w-5xl"
+        activeTab === 'preview' || activeTab === 'rbt' ? "max-w-[1300px]" : "max-w-5xl"
       )}>
-        {activeTab === 'edit' ? (
+        {activeTab === 'rbt' ? (
+          <RbtTab examData={examData} setExamData={setExamData} formatDate={formatDate} />
+        ) : activeTab === 'edit' ? (
           <div className="space-y-8">
             {/* Voice typing controls (language + maths mode + cheat sheet) */}
             <VoiceSettingsBar />
