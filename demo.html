@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Question box — dictation + LaTeX</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 32px 20px; background: #f4f6f9; color: #1a1a1a; }
+  main { max-width: 760px; margin: 0 auto; background: #fff; border: 1px solid #e2e6ec; border-radius: 14px; padding: 24px; }
+  h1 { font-size: 1.15rem; margin: 0 0 4px; }
+  p.sub { margin: 0 0 20px; color: #6b7280; font-size: 0.85rem; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  label { font-weight: 600; font-size: .95rem; }
+  select { border: 1px solid #d9dde3; border-radius: 8px; padding: 5px 8px; font-size: .8rem; }
+  .toggle { font-size: .8rem; color: #6b7280; display: inline-flex; gap: 5px; align-items: center; }
+  #mic { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #d9dde3; background: #fff; border-radius: 999px; padding: 6px 14px; font-size: .85rem; font-weight: 600; cursor: pointer; }
+  #mic.on { border-color: #dc2626; color: #dc2626; background: #fef2f2; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #9ca3af; }
+  #mic.on .dot { background: #dc2626; animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1);} 50% { opacity: .35; transform: scale(1.35);} }
+  @media (prefers-reduced-motion: reduce) { #mic.on .dot { animation: none; } }
+  #toolbar { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px; border: 1px solid #d9dde3; border-radius: 10px; background: #f8fafc; margin-bottom: 8px; }
+  #toolbar button { min-width: 30px; border: 1px solid transparent; background: transparent; border-radius: 6px; padding: 4px 7px; font-size: .9rem; cursor: pointer; }
+  #toolbar button:hover { background: #eef2ff; border-color: #1d4ed8; color: #1d4ed8; }
+  #toolbar button.wide { font-size: .78rem; font-weight: 600; padding: 5px 10px; border-color: #d9dde3; background: #fff; }
+  textarea { width: 100%; box-sizing: border-box; border: 1px solid #d9dde3; border-radius: 10px; padding: 12px; font: .95rem/1.6 ui-monospace, Menlo, Consolas, monospace; resize: vertical; }
+  textarea:focus { outline: 2px solid #1d4ed8; outline-offset: 1px; }
+  .status { display: flex; justify-content: space-between; font-size: .78rem; color: #6b7280; margin: 6px 0 14px; }
+  .status .hearing { color: #dc2626; font-weight: 600; }
+  #preview { position: relative; border: 1px dashed #d9dde3; border-radius: 10px; padding: 18px 14px 14px; line-height: 1.7; overflow-x: auto; }
+  #preview .tag { position: absolute; top: -9px; left: 12px; background: #fff; padding: 0 6px; font-size: .68rem; letter-spacing: .08em; text-transform: uppercase; color: #6b7280; }
+  .bad { background: rgba(220,38,38,.1); color: #b91c1c; padding: 0 4px; border-radius: 4px; font-size: .9em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Question box</h1>
+  <p class="sub">Dictate with the microphone, or type LaTeX between <code>$…$</code>. The preview below is exactly what students see.</p>
+
+  <div class="row">
+    <label for="q">Question</label>
+    <span class="row" style="margin:0">
+      <select id="lang">
+        <option value="en-IN">English (India)</option>
+        <option value="en-US">English (US)</option>
+        <option value="ta-IN">Tamil</option>
+        <option value="te-IN">Telugu</option>
+        <option value="hi-IN">Hindi</option>
+      </select>
+      <label class="toggle"><input type="checkbox" id="mathmode" /> Maths dictation</label>
+      <button id="mic"><span class="dot"></span><span id="miclabel">Dictate</span></button>
+    </span>
+  </div>
+
+  <div id="toolbar"></div>
+
+  <textarea id="q" rows="6" placeholder="Evaluate $\int_0^1 x^2\,dx$ and state the units."></textarea>
+
+  <div class="status">
+    <span id="hint">Ctrl+M wraps the selection in maths. Ctrl+Shift+M for a display block.</span>
+  </div>
+
+  <div id="preview"><span class="tag">Preview</span><span id="out"></span></div>
+</main>
+
+<script>
+const SNIPPETS = [
+  ['$ inline $', 'WRAP', 'wide'], ['$$ display $$', 'WRAPD', 'wide'],
+  ['x²','^{|}'], ['xᵢ','_{|}'], ['a/b','\\frac{|}{}'], ['√','\\sqrt{|}'], ['ⁿ√','\\sqrt[|]{}'],
+  ['( )','\\left(|\\right)'], ['∑','\\sum_{|}^{}'], ['∏','\\prod_{|}^{}'], ['∫','\\int_{|}^{}'],
+  ['lim','\\lim_{|}'], ['∂','\\partial |'], ['≤','\\leq '], ['≥','\\geq '], ['≠','\\neq '],
+  ['≈','\\approx '], ['→','\\to '], ['∈','\\in '], ['α','\\alpha '], ['β','\\beta '],
+  ['θ','\\theta '], ['λ','\\lambda '], ['π','\\pi '], ['σ','\\sigma '], ['ω','\\omega '],
+  ['Matrix','\\begin{pmatrix} | & \\\\ & \\end{pmatrix}'],
+  ['Cases','\\begin{cases} | & \\text{if } \\\\ & \\text{otherwise} \\end{cases}']
+];
+
+const q = document.getElementById('q');
+const out = document.getElementById('out');
+const toolbar = document.getElementById('toolbar');
+const mic = document.getElementById('mic');
+const micLabel = document.getElementById('miclabel');
+const hint = document.getElementById('hint');
+
+SNIPPETS.forEach(([label, insert, cls]) => {
+  const b = document.createElement('button');
+  b.textContent = label;
+  if (cls) b.className = cls;
+  b.onclick = () => {
+    if (insert === 'WRAP') return wrap('$');
+    if (insert === 'WRAPD') return wrap('$$');
+    insertSnippet(insert);
+  };
+  toolbar.appendChild(b);
+});
+
+function insideMath(pos) {
+  const before = q.value.slice(0, pos).replace(/\$\$/g, '');
+  return (before.match(/\$/g) || []).length % 2 === 1;
+}
+
+function insertSnippet(snippet) {
+  const s = q.selectionStart, e = q.selectionEnd;
+  const payload = insideMath(s) ? snippet : '$' + snippet + '$';
+  const caretAt = payload.indexOf('|');
+  const body = payload.replace('|', '');
+  const selected = q.value.slice(s, e);
+  const inserted = caretAt >= 0 && selected
+    ? body.slice(0, caretAt) + selected + body.slice(caretAt)
+    : body;
+  q.value = q.value.slice(0, s) + inserted + q.value.slice(e);
+  const caret = caretAt >= 0 ? s + caretAt + selected.length : s + inserted.length;
+  q.focus(); q.setSelectionRange(caret, caret); render();
+}
+
+function wrap(fence) {
+  const s = q.selectionStart, e = q.selectionEnd;
+  const sel = q.value.slice(s, e);
+  q.value = q.value.slice(0, s) + fence + sel + fence + q.value.slice(e);
+  const caret = s + fence.length + sel.length;
+  q.focus(); q.setSelectionRange(caret, caret); render();
+}
+
+q.addEventListener('keydown', (ev) => {
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'm') {
+    ev.preventDefault(); wrap(ev.shiftKey ? '$$' : '$');
+  }
+});
+
+function render() {
+  const text = q.value;
+  const pattern = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\$([^$\n]+?)\$|\\\(([\s\S]+?)\\\)/g;
+  out.innerHTML = '';
+  let cursor = 0, m;
+  const push = (t) => { const s = document.createElement('span'); s.style.whiteSpace = 'pre-wrap'; s.textContent = t; out.appendChild(s); };
+  while ((m = pattern.exec(text)) !== null) {
+    if (m.index > cursor) push(text.slice(cursor, m.index));
+    const display = m[1] !== undefined || m[2] !== undefined;
+    const body = (m[1] ?? m[2] ?? m[3] ?? m[4] ?? '').trim();
+    const span = document.createElement('span');
+    if (display) { span.style.display = 'block'; span.style.margin = '.6em 0'; }
+    try {
+      span.innerHTML = katex.renderToString(body, { displayMode: display, throwOnError: true, strict: 'ignore' });
+    } catch (err) {
+      span.className = 'bad';
+      span.textContent = (display ? '$$' : '$') + body + (display ? '$$' : '$');
+      span.title = 'This expression could not be rendered';
+    }
+    out.appendChild(span);
+    cursor = m.index + m[0].length;
+  }
+  if (cursor < text.length) push(text.slice(cursor));
+}
+q.addEventListener('input', render);
+
+/* ---- dictation ---- */
+const SPOKEN = [
+  [/\bsquared\b/gi,'^{2}'],[/\bcubed\b/gi,'^{3}'],[/\bto the power (?:of )?(\w+)\b/gi,'^{$1}'],
+  [/\bsquare root of\b/gi,'\\sqrt'],[/\bintegral of\b/gi,'\\int'],[/\bsum(?:mation)? of\b/gi,'\\sum'],
+  [/\bplus or minus\b/gi,'\\pm'],[/\bplus\b/gi,'+'],[/\bminus\b/gi,'-'],[/\btimes\b/gi,'\\times'],
+  [/\bdivided by\b/gi,'/'],[/\bequals\b/gi,'='],[/\bnot equal to\b/gi,'\\neq'],
+  [/\bless than or equal to\b/gi,'\\leq'],[/\bgreater than or equal to\b/gi,'\\geq'],
+  [/\bless than\b/gi,'<'],[/\bgreater than\b/gi,'>'],[/\binfinity\b/gi,'\\infty'],
+  [/\b(alpha|beta|gamma|delta|theta|lambda|mu|sigma|omega|phi|psi|pi)\b/gi,'\\$1']
+];
+const toLatex = (s) => SPOKEN.reduce((acc,[p,r]) => acc.replace(p,r), s).replace(/\s+/g,' ').trim();
+
+const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, listening = false, keepGoing = false;
+
+if (!Ctor) {
+  mic.disabled = true;
+  hint.textContent = 'Dictation needs Chrome, Edge or Android Chrome served over https or localhost.';
+} else {
+  mic.onclick = () => listening ? stop() : start();
+}
+
+function build() {
+  const r = new Ctor();
+  r.lang = document.getElementById('lang').value;
+  r.continuous = true;
+  r.interimResults = true;
+  r.onresult = (ev) => {
+    let interim = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const t = ev.results[i][0].transcript;
+      if (ev.results[i].isFinal) {
+        const phrase = document.getElementById('mathmode').checked ? '$' + toLatex(t.trim()) + '$' : t.trim();
+        q.value += (q.value && !/\s$/.test(q.value) ? ' ' : '') + phrase;
+        render();
+      } else interim += t;
+    }
+    hint.innerHTML = '<span class="hearing">Listening' + (interim ? ': ' + interim : '…') + '</span>';
+  };
+  r.onerror = (ev) => {
+    if (ev.error === 'no-speech' || ev.error === 'aborted') return;
+    keepGoing = false;
+    hint.textContent = ev.error === 'not-allowed'
+      ? 'Microphone access is blocked. Allow it in the address bar.'
+      : 'Speech recognition stopped: ' + ev.error;
+    setIdle();
+  };
+  r.onend = () => { if (keepGoing) { try { r.start(); return; } catch (e) {} } setIdle(); };
+  return r;
+}
+
+function start() { rec = build(); keepGoing = true; try { rec.start(); } catch (e) {} listening = true; mic.classList.add('on'); micLabel.textContent = 'Stop dictation'; }
+function stop() { keepGoing = false; if (rec) rec.stop(); setIdle(); }
+function setIdle() { listening = false; mic.classList.remove('on'); micLabel.textContent = 'Dictate'; hint.textContent = 'Ctrl+M wraps the selection in maths. Ctrl+Shift+M for a display block.'; }
+
+window.addEventListener('load', render);
+</script>
+</body>
+</html>

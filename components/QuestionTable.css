@@ -1,0 +1,142 @@
+/* QuestionTable — mirrors the printed template's column proportions so the
+   review screen reads like the paper it produces. */
+
+.qt {
+  --qt-bg: #ffffff;
+  --qt-fg: #1a1a1a;
+  --qt-muted: #6b7280;
+  --qt-border: #d9dde3;
+  --qt-accent: #1d4ed8;
+  --qt-review: #fffbeb;
+  --qt-review-line: #f59e0b;
+
+  margin: 0 0 28px;
+  color: var(--qt-fg);
+}
+
+.qt-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.qt-title { font-size: 1rem; font-weight: 700; margin: 0; letter-spacing: 0.04em; }
+.qt-count { font-size: 0.78rem; color: var(--qt-muted); }
+
+.qt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.qt-table th,
+.qt-table td {
+  border: 1px solid var(--qt-border);
+  padding: 8px 10px;
+  vertical-align: top;
+  text-align: left;
+}
+
+.qt-table th {
+  background: #f8fafc;
+  font-weight: 700;
+  text-align: center;
+  font-size: 0.82rem;
+}
+
+.qt-num { width: 52px; text-align: center; vertical-align: middle; }
+.qt-co { width: 92px; text-align: center; }
+.qt-rbt { width: 150px; text-align: center; }
+
+.qt-question { line-height: 1.55; }
+
+.qt-review { background: var(--qt-review); }
+.qt-review .qt-num { box-shadow: inset 3px 0 0 var(--qt-review-line); }
+
+.qt-why {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  color: var(--qt-muted);
+  line-height: 1.45;
+}
+
+.qt-alt {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--qt-accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.qt-select {
+  width: 100%;
+  border: 1px solid var(--qt-border);
+  border-radius: 7px;
+  padding: 5px 6px;
+  font-size: 0.82rem;
+  background: var(--qt-bg);
+  color: inherit;
+}
+
+.qt-select:focus {
+  outline: 2px solid var(--qt-accent);
+  outline-offset: 1px;
+}
+
+.qt-empty {
+  border-color: var(--qt-review-line);
+  background: #fffdf5;
+}
+
+.qt-flag {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.68rem;
+  color: var(--qt-muted);
+}
+
+.qt-foot {
+  margin-top: 8px;
+  font-size: 0.78rem;
+}
+
+.qt-todo {
+  margin: 3px 0;
+  color: #92400e;
+}
+
+.qt-spread {
+  margin: 6px 0 0;
+  color: var(--qt-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-color-scheme: dark) {
+  .qt {
+    --qt-bg: #111827;
+    --qt-fg: #e5e7eb;
+    --qt-muted: #9ca3af;
+    --qt-border: #374151;
+    --qt-accent: #60a5fa;
+    --qt-review: #2a2213;
+  }
+  .qt-table th { background: #0f172a; }
+  .qt-empty { background: #2a2213; }
+  .qt-todo { color: #fbbf24; }
+}
+
+@media (max-width: 640px) {
+  .qt-table, .qt-table tbody, .qt-table tr, .qt-table td { display: block; width: 100%; }
+  .qt-table thead { display: none; }
+  .qt-table tr { margin-bottom: 12px; border: 1px solid var(--qt-border); border-radius: 8px; overflow: hidden; }
+  .qt-table td { border: none; border-bottom: 1px solid var(--qt-border); }
+  .qt-num { text-align: left; font-weight: 700; background: #f8fafc; }
+  .qt-co, .qt-rbt { width: auto; text-align: left; }
+  .qt-co::before { content: 'CO'; display: block; font-size: 0.7rem; color: var(--qt-muted); margin-bottom: 3px; }
+  .qt-rbt::before { content: 'RBT Level'; display: block; font-size: 0.7rem; color: var(--qt-muted); margin-bottom: 3px; }
+}

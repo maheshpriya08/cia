@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CO and RBT mapping</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<style>
+ body { font-family: system-ui,-apple-system,"Segoe UI",sans-serif; margin:0; padding:28px 20px; background:#f4f6f9; color:#1a1a1a; }
+ main { max-width:1000px; margin:0 auto; background:#fff; border:1px solid #e2e6ec; border-radius:14px; padding:24px; }
+ h1 { font-size:1.15rem; margin:0 0 4px; }
+ p.sub { margin:0 0 20px; color:#6b7280; font-size:.85rem; }
+ table { width:100%; border-collapse:collapse; font-size:.9rem; }
+ th,td { border:1px solid #d9dde3; padding:8px 10px; vertical-align:top; text-align:left; }
+ th { background:#f8fafc; text-align:center; font-size:.82rem; }
+ .num { width:52px; text-align:center; vertical-align:middle; }
+ .co { width:92px; } .rbt { width:160px; }
+ tr.review { background:#fffbeb; }
+ .why { margin:6px 0 0; font-size:.75rem; color:#6b7280; line-height:1.45; }
+ .alt { background:none;border:none;padding:0 2px;font:inherit;font-weight:700;color:#1d4ed8;cursor:pointer;text-decoration:underline; }
+ select { width:100%; border:1px solid #d9dde3; border-radius:7px; padding:5px 6px; font-size:.82rem; background:#fff; }
+ select.empty { border-color:#f59e0b; background:#fffdf5; }
+ .flag { display:block; margin-top:4px; font-size:.68rem; color:#6b7280; }
+ .foot { margin-top:10px; font-size:.78rem; }
+ .todo { color:#92400e; margin:3px 0; }
+ .spread { color:#6b7280; margin:6px 0 0; }
+ textarea { width:100%; box-sizing:border-box; border:1px solid #d9dde3; border-radius:10px; padding:10px; font:.9rem/1.5 ui-monospace,Menlo,Consolas,monospace; }
+ button.add { margin-top:8px; border:1px solid #d9dde3; background:#fff; border-radius:999px; padding:6px 14px; font-size:.85rem; font-weight:600; cursor:pointer; }
+ button.add:hover { border-color:#1d4ed8; color:#1d4ed8; }
+</style>
+</head>
+<body>
+<main>
+ <h1>CO and RBT mapping</h1>
+ <p class="sub">RBT is suggested from the task verb and is editable. Amber rows are the ones worth a second look. Paste your own question wording below to test the mapping.</p>
+
+ <table>
+  <thead><tr><th class="num">Q. No</th><th>Questions</th><th class="co">CO</th><th class="rbt">RBT Level</th></tr></thead>
+  <tbody id="rows"></tbody>
+ </table>
+
+ <div class="foot" id="foot"></div>
+
+ <p class="sub" style="margin-top:22px">Add a question</p>
+ <textarea id="newq" rows="3" placeholder="Evaluate $\\int_0^1 x^2\\,dx$ and state the units."></textarea>
+ <button class="add" id="addbtn">Add question</button>
+</main>
+
+<script>
+/**
+ * classifyRbt — suggests a Revised Bloom's Taxonomy level (L1–L6) for a
+ * question, by reading its task verbs.
+ *
+ * Deliberately a SUGGESTION, not a verdict. It returns a confidence and,
+ * where the evidence is genuinely split, an alternative — because verb
+ * matching gets a real share of exam questions wrong, and an RBT column is
+ * an accreditation artifact. See `needsReview` and the notes in the README.
+ *
+ * Two things make this better than a plain verb lookup:
+ *
+ *   1. Position weighting. The imperative verb that opens a sentence is the
+ *      task. Verbs buried in subordinate clauses ("…, explaining how…",
+ *      "…to show that…") describe the method, not the demand, and are scored
+ *      far lower.
+ *
+ *   2. Maths-sense disambiguation. "Evaluate" is an L5 judgement verb in
+ *      general education and an L3 computation verb in a maths paper —
+ *      "Evaluate the integral" is Apply, not Evaluate. Same for determine,
+ *      find, verify, show and prove. Since this app serves a mathematics
+ *      programme, those cases are detected and re-scored.
+ */
+classifyRbt = classifyRbt;
+analysePaper = analysePaper;
+const RBT_LABELS = {
+    1: 'Remember',
+    2: 'Understand',
+    3: 'Apply',
+    4: 'Analyse',
+    5: 'Evaluate',
+    6: 'Create',
+};
+/* ------------------------------------------------------------------ */
+/* verb tables                                                         */
+/* ------------------------------------------------------------------ */
+const VERBS = {
+    1: [
+        'define', 'list', 'state', 'recall', 'name', 'identify', 'label',
+        'recognise', 'recognize', 'reproduce', 'match', 'recite', 'record',
+        'enumerate', 'mention', 'quote', 'tabulate', 'what is', 'who is',
+        'when did', 'write short notes',
+    ],
+    2: [
+        'explain', 'describe', 'summarise', 'summarize', 'interpret', 'classify',
+        'discuss', 'illustrate', 'paraphrase', 'restate', 'express', 'review',
+        'outline', 'give an account', 'give examples', 'elaborate', 'clarify',
+        'translate', 'convert', 'generalise', 'generalize', 'infer', 'predict',
+        'indicate', 'report', 'exemplify',
+    ],
+    3: [
+        'apply', 'solve', 'compute', 'calculate', 'demonstrate', 'implement',
+        'execute', 'employ', 'operate', 'sketch', 'draw', 'construct', 'use',
+        'modify', 'carry out', 'perform', 'simulate', 'estimate', 'obtain',
+        'work out', 'update', 'train', 'code', 'program',
+        // Ambiguous verbs — listed here so they match at all; MATHS_SENSE
+        // then re-scores them by context, which is where the level is decided.
+        'show', 'find', 'determine', 'verify', 'derive',
+    ],
+    4: [
+        'analyse', 'analyze', 'differentiate', 'distinguish', 'examine',
+        'deconstruct', 'categorise', 'categorize', 'investigate', 'attribute',
+        'organise', 'organize', 'correlate', 'diagnose', 'break down',
+        'contrast', 'compare', 'relate', 'infer why', 'deduce', 'trace',
+        'dissect', 'test', 'discriminate',
+    ],
+    5: [
+        'evaluate', 'judge', 'justify', 'critique', 'assess', 'defend', 'argue',
+        'appraise', 'recommend', 'prioritise', 'prioritize', 'validate',
+        'conclude', 'support', 'rate', 'rank', 'comment on', 'criticise',
+        'criticize', 'weigh', 'debate', 'select the best', 'which is better',
+        'prove',
+    ],
+    6: [
+        'design', 'create', 'develop', 'formulate', 'propose', 'compose',
+        'devise', 'generate', 'synthesise', 'synthesize', 'invent', 'produce',
+        'plan', 'build', 'architect', 'model a', 'construct a new', 'adapt',
+        'reorganise', 'reorganize', 'hypothesise', 'hypothesize',
+    ],
+};
+/**
+ * Verbs whose Bloom level flips depending on the subject.
+ * In a mathematics or engineering paper these usually mean "compute".
+ */
+const MATHS_SENSE = {
+    evaluate: {
+        mathsLevel: 3, generalLevel: 5,
+        mathsNote: '"Evaluate" before an expression means compute, so Apply (L3)',
+        generalNote: 'No maths in the question, so "evaluate" reads as judgement (L5)',
+    },
+    determine: {
+        mathsLevel: 3, generalLevel: 4,
+        mathsNote: '"Determine" a quantity is Apply (L3)',
+        generalNote: '"Determine" without a quantity reads as Analyse (L4)',
+    },
+    find: {
+        mathsLevel: 3, generalLevel: 1,
+        mathsNote: '"Find" a quantity is Apply (L3)',
+        generalNote: '"Find" without a computation reads as recall (L1)',
+    },
+    verify: {
+        mathsLevel: 3, generalLevel: 5,
+        mathsNote: '"Verify" by substitution is Apply (L3)',
+        generalNote: 'Verifying a claim critically is Evaluate (L5)',
+    },
+    show: {
+        mathsLevel: 3, generalLevel: 1,
+        mathsNote: '"Show that" is a derivation, so Apply (L3)',
+        generalNote: '"Show" without maths usually means state or list (L1)',
+    },
+    prove: {
+        mathsLevel: 4, generalLevel: 5,
+        mathsNote: '"Prove" is a constructed argument, so Analyse (L4)',
+        generalNote: '"Prove" a position is Evaluate (L5)',
+    },
+    derive: {
+        mathsLevel: 3, generalLevel: 4,
+        mathsNote: 'Deriving a standard result is Apply (L3)',
+        generalNote: 'Deriving a relationship is Analyse (L4)',
+    },
+};
+/** Verbs mapped to different levels by different published rubrics. */
+const CONTESTED = {
+    compare: { primary: 4, other: 2, reason: 'some rubrics place "compare" at Understand (L2)' },
+    contrast: { primary: 4, other: 2, reason: 'some rubrics place "contrast" at Understand (L2)' },
+    outline: { primary: 2, other: 1, reason: '"outline" is Remember (L1) in some rubrics' },
+    illustrate: { primary: 2, other: 3, reason: 'illustrating by worked example is Apply (L3)' },
+    construct: { primary: 3, other: 6, reason: 'constructing something novel is Create (L6)' },
+    predict: { primary: 2, other: 3, reason: 'predicting from a model is Apply (L3)' },
+    test: { primary: 4, other: 3, reason: 'running a prescribed test is Apply (L3)' },
+    interpret: { primary: 2, other: 4, reason: 'interpreting results critically reaches L4' },
+    discuss: { primary: 2, other: 5, reason: '"discuss critically" reaches Evaluate (L5)' },
+};
+/** Does the sentence contain maths, or read like a computation? */
+function isMathsContext(text) {
+    if (/\$[^$]+\$/.test(text))
+        return true;
+    if (/\\(int|sum|frac|sqrt|lim|partial|prod)/.test(text))
+        return true;
+    return /\b(integral|derivative|equation|matrix|value of|to \d+ decimal|numerically|gradient|weight|compute)\b/i.test(text);
+}
+/** Strip maths so verbs inside expressions aren't matched as task verbs. */
+function stripMath(text) {
+    return text.replace(/\$\$[\s\S]*?\$\$/g, ' ').replace(/\$[^$\n]*\$/g, ' ');
+}
+function sentences(text) {
+    return stripMath(text)
+        .split(/(?<=[.;:?])\s+|\n+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+}
+function classifyRbt(questionText) {
+    const source = questionText ?? '';
+    const maths = isMathsContext(source);
+    const parts = sentences(source);
+    const hits = [];
+    parts.forEach((sentence, sentenceIndex) => {
+        const lower = ' ' + sentence.toLowerCase() + ' ';
+        Object.keys(VERBS).forEach((key) => {
+            const level = Number(key);
+            for (const verb of VERBS[level]) {
+                const idx = lower.indexOf(' ' + verb);
+                if (idx < 0)
+                    continue;
+                // Position weighting: an imperative opening the first sentence is
+                // the actual task; later or embedded verbs describe the method.
+                const opensSentence = idx <= 1;
+                let weight = opensSentence ? 1.0 : 0.35;
+                if (sentenceIndex > 0)
+                    weight *= 0.75;
+                // "...explaining how", "...to show that" — subordinate, not the task.
+                if (/(?:,\s*|by\s+|while\s+|thereby\s+)$/.test(lower.slice(0, idx + 1)))
+                    weight *= 0.4;
+                if (verb.endsWith('ing'))
+                    weight *= 0.5;
+                let effectiveLevel = level;
+                let note;
+                const sense = MATHS_SENSE[verb];
+                if (sense) {
+                    effectiveLevel = maths ? sense.mathsLevel : sense.generalLevel;
+                    note = maths ? sense.mathsNote : sense.generalNote;
+                    // "Evaluate how/why X works" asks for a mechanism, not a judgement.
+                    if (verb === 'evaluate' && /evaluate\s+(how|why|whether|the extent)/i.test(sentence)) {
+                        effectiveLevel = 4;
+                        note = '"Evaluate how…" asks for a mechanism, so Analyse (L4), not L5';
+                    }
+                }
+                hits.push({ verb, level: effectiveLevel, weight, note });
+            }
+        });
+    });
+    if (hits.length === 0) {
+        return {
+            level: 2,
+            code: 'L2',
+            label: RBT_LABELS[2],
+            confidence: 0.2,
+            matchedVerbs: [],
+            reasoning: 'No recognised task verb. Defaulted to L2 — please set this manually.',
+            needsReview: true,
+        };
+    }
+    // Sum weights per level; keep the strongest verb for each.
+    const scores = new Map();
+    const strongest = new Map();
+    for (const hit of hits) {
+        scores.set(hit.level, (scores.get(hit.level) ?? 0) + hit.weight);
+        const current = strongest.get(hit.level);
+        if (!current || hit.weight > current.weight)
+            strongest.set(hit.level, hit);
+    }
+    const ranked = [...scores.entries()].sort((a, b) => {
+        if (Math.abs(b[1] - a[1]) > 1e-9)
+            return b[1] - a[1];
+        return b[0] - a[0]; // tie: the higher cognitive demand wins
+    });
+    const [topLevel, topScore] = ranked[0];
+    const runnerUp = ranked[1];
+    const total = [...scores.values()].reduce((a, b) => a + b, 0);
+    let confidence = topScore / total;
+    // A lone weak match shouldn't read as certain.
+    if (topScore < 0.5)
+        confidence *= 0.6;
+    const topHit = strongest.get(topLevel);
+    const orderedVerbs = hits
+        .slice()
+        .sort((a, b) => b.weight - a.weight)
+        .map((h) => h.verb)
+        .filter((v, i, arr) => arr.indexOf(v) === i);
+    let alternative;
+    const contested = CONTESTED[topHit.verb];
+    const senseFlip = MATHS_SENSE[topHit.verb];
+    if (contested && contested.primary === topLevel) {
+        alternative = {
+            level: contested.other,
+            code: `L${contested.other}`,
+            label: RBT_LABELS[contested.other],
+            reason: contested.reason,
+        };
+        confidence = Math.min(confidence, 0.6);
+    }
+    else if (senseFlip && senseFlip.mathsLevel !== senseFlip.generalLevel) {
+        // The level here rests on whether the question counts as maths — an
+        // inference, so offer the other reading rather than hiding it.
+        const other = maths ? senseFlip.generalLevel : senseFlip.mathsLevel;
+        alternative = {
+            level: other,
+            code: `L${other}`,
+            label: RBT_LABELS[other],
+            reason: maths
+                ? `read as a general-education question, "${topHit.verb}" would be L${other}`
+                : `read as a computation, "${topHit.verb}" would be L${other}`,
+        };
+        confidence = Math.min(confidence, 0.7);
+    }
+    else if (runnerUp && runnerUp[1] / topScore > 0.6) {
+        alternative = {
+            level: runnerUp[0],
+            code: `L${runnerUp[0]}`,
+            label: RBT_LABELS[runnerUp[0]],
+            reason: `"${strongest.get(runnerUp[0]).verb}" also appears and points to L${runnerUp[0]}`,
+        };
+        confidence = Math.min(confidence, 0.65);
+    }
+    const reasoningParts = [`Task verb "${topHit.verb}" → L${topLevel} ${RBT_LABELS[topLevel]}`];
+    if (topHit.note)
+        reasoningParts.push(topHit.note);
+    if (hits.length > 3) {
+        reasoningParts.push(`${hits.length} verbs found — multi-part question, level taken from the strongest`);
+    }
+    return {
+        level: topLevel,
+        code: `L${topLevel}`,
+        label: RBT_LABELS[topLevel],
+        confidence: Math.round(Math.min(confidence, 0.95) * 100) / 100,
+        matchedVerbs: orderedVerbs,
+        alternative,
+        reasoning: reasoningParts.join('. '),
+        needsReview: confidence < 0.55 || Boolean(alternative),
+    };
+}
+/**
+ * Most CIA rubrics expect a spread across levels rather than a paper
+ * bunched at one. This reports the distribution so the author can see it
+ * before the paper is finalised.
+ */
+function analysePaper(levels) {
+    const counts = {};
+    for (const level of levels) {
+        const code = `L${level}`;
+        counts[code] = (counts[code] ?? 0) + 1;
+    }
+    const missing = [1, 2, 3, 4, 5, 6]
+        .filter((l) => !counts[`L${l}`])
+        .map((l) => `L${l}`);
+    const warnings = [];
+    const total = levels.length;
+    if (total > 0) {
+        const distinct = Object.keys(counts).length;
+        if (distinct === 1) {
+            warnings.push(`Every question is at ${Object.keys(counts)[0]}. Most rubrics expect a spread.`);
+        }
+        const lowCount = levels.filter((l) => l <= 2).length;
+        if (lowCount === 0 && total >= 3) {
+            warnings.push('No L1 or L2 question — weaker students have no entry point.');
+        }
+        const highCount = levels.filter((l) => l >= 4).length;
+        if (highCount === total && total >= 3) {
+            warnings.push('Every question is L4 or above. Check this matches the marks and the time allowed.');
+        }
+    }
+    return { counts, missing, warnings };
+}
+
+const COS = ['CO1','CO2','CO3','CO4','CO5'];
+let questions = [
+ { text: "Contrast the structural and functional mechanisms of a biological neuron with an Artificial Neural Network (ANN) processing unit. Outline the historical evolution from the McCulloch-Pitts model to Rosenblatt's Perceptron.", co:'CO1' },
+ { text: "Examine why the sigmoid $\\sigma(z)=\\frac{1}{1+e^{-z}}$ is selected for binary logistic regression, and analyze why cross-entropy is preferred over MSE.", co:'CO2' },
+ { text: "Solve a full single-step weight adjustment using the Backpropagation algorithm with $\\eta = 0.1$. Compute the updated $w_2$ and $w_1$ to 4 decimal places.", co:'' },
+ { text: "Evaluate the ethical implications of deploying facial recognition in public spaces.", co:'' },
+ { text: "Design a convolutional architecture for handwritten character recognition and justify each layer choice.", co:'CO5' },
+];
+
+function mathHtml(text) {
+  const pattern = /\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$/g;
+  let out = '', cursor = 0, m;
+  const escape = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  while ((m = pattern.exec(text)) !== null) {
+    out += escape(text.slice(cursor, m.index));
+    const display = m[1] !== undefined;
+    const body = (m[1] ?? m[2] ?? '').trim();
+    try { out += katex.renderToString(body, { displayMode: display, throwOnError: true, strict:'ignore' }); }
+    catch (e) { out += '<code>' + escape(m[0]) + '</code>'; }
+    cursor = m.index + m[0].length;
+  }
+  out += escape(text.slice(cursor));
+  return out;
+}
+
+function render() {
+  const tbody = document.getElementById('rows');
+  tbody.innerHTML = '';
+
+  questions.forEach((q, i) => {
+    const s = classifyRbt(q.text);
+    if (!q.rbt) q.rbt = s.code;
+
+    const tr = document.createElement('tr');
+    if (s.needsReview && !q.confirmed) tr.className = 'review';
+
+    const overridden = q.confirmed && q.rbt !== s.code;
+    const flag = overridden ? 'set by you'
+      : s.needsReview ? 'check this'
+      : Math.round(s.confidence * 100) + '% match';
+
+    tr.innerHTML =
+      '<td class="num">' + (i+1) + '</td>' +
+      '<td>' + mathHtml(q.text) + '<p class="why">' + s.reasoning +
+        (s.alternative ? ' — or <button class="alt" data-alt="'+i+'">'+s.alternative.code+'</button>, since '+s.alternative.reason : '') +
+      '</p></td>' +
+      '<td class="co"><select class="'+(q.co?'':'empty')+'" data-co="'+i+'">' +
+        '<option value="">—</option>' +
+        COS.map(c => '<option value="'+c+'"'+(q.co===c?' selected':'')+'>'+c+'</option>').join('') +
+      '</select></td>' +
+      '<td class="rbt"><select data-rbt="'+i+'">' +
+        [1,2,3,4,5,6].map(l => '<option value="L'+l+'"'+(q.rbt==='L'+l?' selected':'')+'>L'+l+' · '+RBT_LABELS[l]+'</option>').join('') +
+      '</select><span class="flag">'+flag+'</span></td>';
+
+    tbody.appendChild(tr);
+  });
+
+  tbody.querySelectorAll('[data-co]').forEach(el => {
+    el.onchange = () => { questions[+el.dataset.co].co = el.value; render(); };
+  });
+  tbody.querySelectorAll('[data-rbt]').forEach(el => {
+    el.onchange = () => { const q = questions[+el.dataset.rbt]; q.rbt = el.value; q.confirmed = true; render(); };
+  });
+  tbody.querySelectorAll('[data-alt]').forEach(el => {
+    el.onclick = () => {
+      const i = +el.dataset.alt, s = classifyRbt(questions[i].text);
+      questions[i].rbt = s.alternative.code; questions[i].confirmed = true; render();
+    };
+  });
+
+  const levels = questions.map(q => Number((q.rbt||'').replace('L',''))).filter(l => l>=1 && l<=6);
+  const b = analysePaper(levels);
+  const unsetCo = questions.filter(q => !q.co).length;
+  const foot = document.getElementById('foot');
+  foot.innerHTML =
+    (unsetCo ? '<p class="todo">'+unsetCo+' question'+(unsetCo===1?'':'s')+' still need'+(unsetCo===1?'s':'')+' a CO.</p>' : '') +
+    b.warnings.map(w => '<p class="todo">'+w+'</p>').join('') +
+    '<p class="spread">Spread: ' + (Object.keys(b.counts).length
+      ? Object.entries(b.counts).sort().map(([c,n]) => c+'x'+n).join('  ') : '-') + '</p>';
+}
+
+document.getElementById('addbtn').onclick = () => {
+  const el = document.getElementById('newq');
+  if (!el.value.trim()) return;
+  questions.push({ text: el.value.trim(), co: '' });
+  el.value = '';
+  render();
+};
+
+window.addEventListener('load', render);
+</script>
+</body>
+</html>

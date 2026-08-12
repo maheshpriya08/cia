@@ -1,0 +1,237 @@
+/* QuestionBox — plain CSS so it works with or without Tailwind.
+   Colours come from custom properties; override them to match your theme. */
+
+.qb {
+  --qb-bg: #ffffff;
+  --qb-fg: #1a1a1a;
+  --qb-muted: #6b7280;
+  --qb-border: #d9dde3;
+  --qb-accent: #1d4ed8;
+  --qb-accent-soft: #eef2ff;
+  --qb-danger: #b91c1c;
+  --qb-warn: #92400e;
+
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--qb-fg);
+  font-family: inherit;
+}
+
+.qb-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.qb-label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.qb-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.qb-select {
+  border: 1px solid var(--qb-border);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 0.8rem;
+  background: var(--qb-bg);
+  color: inherit;
+}
+
+.qb-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8rem;
+  color: var(--qb-muted);
+  cursor: pointer;
+}
+
+.qb-mic {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--qb-border);
+  background: var(--qb-bg);
+  color: inherit;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.qb-mic:hover:not(:disabled) {
+  border-color: var(--qb-accent);
+  color: var(--qb-accent);
+}
+
+.qb-mic-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--qb-muted);
+}
+
+.qb-mic-on {
+  border-color: #dc2626;
+  color: #dc2626;
+  background: #fef2f2;
+}
+
+.qb-mic-on .qb-mic-dot {
+  background: #dc2626;
+  animation: qb-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes qb-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(1.35); }
+}
+
+.qb-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--qb-border);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.qb-group {
+  display: inline-flex;
+  gap: 2px;
+  padding: 0 4px;
+  border-right: 1px solid var(--qb-border);
+}
+
+.qb-group:last-child { border-right: none; }
+
+.qb-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--qb-border);
+  margin: 0 4px;
+}
+
+.qb-chip {
+  min-width: 30px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  padding: 4px 7px;
+  font-size: 0.9rem;
+  line-height: 1.2;
+  cursor: pointer;
+  color: inherit;
+}
+
+.qb-chip:hover {
+  background: var(--qb-accent-soft);
+  border-color: var(--qb-accent);
+  color: var(--qb-accent);
+}
+
+.qb-chip-wide {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-color: var(--qb-border);
+  background: var(--qb-bg);
+}
+
+.qb-textarea {
+  width: 100%;
+  border: 1px solid var(--qb-border);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  resize: vertical;
+  background: var(--qb-bg);
+  color: inherit;
+}
+
+.qb-textarea:focus {
+  outline: 2px solid var(--qb-accent);
+  outline-offset: 1px;
+  border-color: var(--qb-accent);
+}
+
+.qb-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.78rem;
+  color: var(--qb-muted);
+}
+
+.qb-hearing { color: #dc2626; font-weight: 600; }
+.qb-hint { color: var(--qb-muted); }
+.qb-error { color: var(--qb-danger); font-size: 0.8rem; margin: 0; }
+.qb-warn { color: var(--qb-warn); font-size: 0.8rem; margin: 0; }
+
+.qb-link {
+  background: none;
+  border: none;
+  color: var(--qb-accent);
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.qb-preview {
+  position: relative;
+  border: 1px dashed var(--qb-border);
+  border-radius: 10px;
+  padding: 18px 14px 14px;
+  min-height: 52px;
+  font-size: 1rem;
+  line-height: 1.7;
+  background: #fcfcfd;
+  overflow-x: auto;
+}
+
+.qb-preview-tag {
+  position: absolute;
+  top: -9px;
+  left: 12px;
+  background: var(--qb-bg);
+  padding: 0 6px;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--qb-muted);
+}
+
+@media (prefers-color-scheme: dark) {
+  .qb {
+    --qb-bg: #111827;
+    --qb-fg: #e5e7eb;
+    --qb-muted: #9ca3af;
+    --qb-border: #374151;
+    --qb-accent: #60a5fa;
+    --qb-accent-soft: #1e293b;
+  }
+  .qb-toolbar { background: #0f172a; }
+  .qb-preview { background: #0f172a; }
+  .qb-mic-on { background: #3f1d1d; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qb-mic-on .qb-mic-dot { animation: none; }
+}
