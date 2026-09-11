@@ -11,8 +11,7 @@ import {
   Copy, 
   Image as ImageIcon,
   CheckCircle2,
-  Printer,
-  Table2
+  Printer
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
@@ -32,9 +31,6 @@ import {
   VoiceField,
 } from './components/VoiceInput';
 import { loadBundledLogo, fileToPngDataUrl } from './lib/logo';
-import { MM, PAGE, USABLE_H, COL_W, mm, countColumns } from './lib/page';
-import { RbtTab } from './components/RbtTab';
-import type { RbtMeta } from './types';
 
 const PROGRAMS = [
   "B.Tech. Computer Science & Engineering",
@@ -58,7 +54,22 @@ const PROGRAMS = [
 /* ------------------------------------------------------------------ */
 /* Page geometry - A4 landscape, two sequential columns                 */
 /* ------------------------------------------------------------------ */
-/* Moved to lib/page.ts so the RBT sheet fragments against the same box. */
+const MM = 96 / 25.4;                 // CSS px per millimetre at 96dpi
+
+const PAGE = {
+  width: 297,                          // A4 landscape
+  height: 210,
+  padTop: 12,
+  padBottom: 10,
+  padLeft: 10,
+  padRight: 10,
+  gap: 8,
+};
+const USABLE_H = PAGE.height - PAGE.padTop - PAGE.padBottom;                 // 188mm
+/* One COLUMN is one page of the paper; a sheet holds two side by side. */
+const COL_W = (PAGE.width - PAGE.padLeft - PAGE.padRight - PAGE.gap) / 2;    // 134.5mm
+
+const mm = (v: number) => `${v}mm`;
 
 /** Word measures in twips: 1mm = 56.6929 twips. */
 const TWIPS_PER_MM = 56.6929;
@@ -363,11 +374,8 @@ export default function App() {
       return raw ? (JSON.parse(raw).savedAt ?? null) : null;
     } catch { return null; }
   });
-  const [activeTab, setActiveTab] = useState<'edit' | 'preview' | 'rbt'>('edit');
+  const [activeTab, setActiveTab] = useState<'edit' | 'preview'>('edit');
   const [expandedPart, setExpandedPart] = useState<string | null>(null);
-
-  // Custom programme entered through the "Others" option.
-  const [otherProgram, setOtherProgram] = useState('');
   const [isExporting, setIsExporting] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
@@ -485,7 +493,7 @@ export default function App() {
                                   protected from splitting. */}
                               <div className="relative">
                                 <div className="flex gap-2">
-                                  <span className="font-normal min-w-[16px] text-[13px]">{n}.</span>
+                                  <span className="font-bold min-w-[16px] text-[13px]">{n}.</span>
                                   <div className="flex-1 space-y-1">
                                     <div className="text-[13px] leading-relaxed">
                                       <MathText text={q.text} />
@@ -559,7 +567,13 @@ export default function App() {
    * us the total directly.
    */
   const paginate = useCallback(() => {
-    setColumnCount(countColumns(measureRef.current));
+    const host = measureRef.current;
+    if (!host) return;
+    const colPx = COL_W * MM;
+    const gapPx = PAGE.gap * MM;
+    const total = host.scrollWidth;
+    const count = Math.max(1, Math.round((total + gapPx) / (colPx + gapPx)));
+    setColumnCount(count);
   }, []);
 
   useLayoutEffect(() => { paginate(); }, [previewBlocks, paginate, activeTab]);
@@ -623,7 +637,7 @@ export default function App() {
   }, [examData.logoUrl]);
 
   // If no logo has been uploaded, fall back to the one bundled in /public
-  // (logo.png -> logo.jpg -> logo.png) so the header always opens with a logo.
+  // (logo.png -> logo.jpg -> logo.svg) so the header always opens with a logo.
   useEffect(() => {
     let cancelled = false;
     if (examData.logoUrl) return;
@@ -645,7 +659,7 @@ export default function App() {
 
   const toggleProgram = (program: string) => {
     setExamData(prev => {
-      const currentPrograms = prev.program ? prev.program.split(' / ').filter(Boolean) : [];
+      const currentPrograms = prev.program ? prev.program.split(' / ') : [];
       if (currentPrograms.includes(program)) {
         const newPrograms = currentPrograms.filter(p => p !== program);
         return { ...prev, program: newPrograms.join(' / ') };
@@ -653,47 +667,6 @@ export default function App() {
         return { ...prev, program: [...currentPrograms, program].join(' / ') };
       }
     });
-  };
-
-  // "Others" behaves like another selectable programme, but its label is typed by the user.
-  const otherProgramValue = otherProgram.trim();
-  const isOtherProgramSelected =
-    otherProgram !== '' &&
-    (otherProgramValue === '' || examData.program.split(' / ').includes(otherProgramValue));
-
-  const toggleOtherProgram = () => {
-    if (otherProgram !== '') {
-      const custom = otherProgram.trim();
-      if (custom) {
-        setExamData(prev => ({
-          ...prev,
-          program: prev.program
-            .split(' / ')
-            .filter(p => p && p !== custom)
-            .join(' / ')
-        }));
-      }
-      setOtherProgram('');
-    } else {
-      // A single space keeps the checkbox active while the input is still empty.
-      setOtherProgram(' ');
-    }
-  };
-
-  const handleOtherProgramChange = (value: string) => {
-    const previous = otherProgram.trim();
-
-    setExamData(prev => {
-      let programs = prev.program ? prev.program.split(' / ').filter(Boolean) : [];
-      if (previous) programs = programs.filter(p => p !== previous);
-
-      const custom = value.trim();
-      if (custom && !programs.includes(custom)) programs.push(custom);
-
-      return { ...prev, program: programs.join(' / ') };
-    });
-
-    setOtherProgram(value === '' ? ' ' : value);
   };
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -873,7 +846,7 @@ export default function App() {
         letterRendering: true,
         logging: false 
       },
-      jsPDF: { unit: 'mm' as const, format: 'letter' as const, orientation: 'landscape' as const },
+      jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'landscape' as const },
       pagebreak: { mode: ['avoid-all', 'css', 'legacy'] as any }
     };
 
@@ -1210,7 +1183,7 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
               children: [
                 new TextRun({
                   text: part.name.toUpperCase(),
-                  bold: false,
+                  bold: true,
                   size: 24,
                   font: "Times New Roman",
                 }),
@@ -1266,7 +1239,7 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
           questionElements.push(
             new Paragraph({
               children: [
-                new TextRun({ text: `${globalQuestionNumber}. `, bold: false, size: 20, font: "Times New Roman" }),
+                new TextRun({ text: `${globalQuestionNumber}. `, bold: true, size: 20, font: "Times New Roman" }),
                 ...renderRich(q.text || "", { size: 20, font: "Times New Roman" }),
               ],
               spacing: { before: 100, after: 50 },
@@ -1550,90 +1523,142 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
       carries its own internal padding, so nothing is clipped.
     */}
     <style>{`
-      /*
-        Fragmentation rules for the flowed content. Questions MAY break across
-        a column or sheet boundary - that is what keeps columns full - but the
-        exam header must never be torn in half, and a part heading must not be
-        stranded at the foot of a column away from its questions.
-      */
-      .exam-flow .exam-header-block { break-inside: avoid; page-break-inside: avoid; }
-      .exam-flow .part-head-block {
-        break-inside: avoid; page-break-inside: avoid;
-        break-after: avoid;  page-break-after: avoid;
+      .exam-flow .exam-header-block {
+        break-inside: avoid;
+        page-break-inside: avoid;
       }
-      .exam-flow table, .exam-flow img { break-inside: avoid; page-break-inside: avoid; }
+
+      .exam-flow .part-head-block {
+        break-inside: avoid;
+        page-break-inside: avoid;
+        break-after: avoid;
+        page-break-after: avoid;
+      }
+
+      .exam-flow table,
+      .exam-flow img {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
 
       @media print {
-        /*
-          "size: A4 landscape" is more reliable than explicit millimetres -
-          the browser matches its own A4 definition exactly, so there is no
-          rounding gap that pushes a blank page out. margin:0 removes the
-          browser's header/footer, which are drawn INTO the page margin.
-        */
-        @page { size: A4 landscape; margin: 0; }
+        @page {
+          size: A4 landscape;
+          margin: 0;
+        }
 
-        html, body {
-          width: auto !important;
+        html,
+        body {
+          width: 297mm !important;
+          min-width: 297mm !important;
           height: auto !important;
           margin: 0 !important;
           padding: 0 !important;
           background: #ffffff !important;
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
+          overflow: visible !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
         }
 
-        .no-print { display: none !important; }
-
-        /* strip every layout constraint between the page and the sheet */
-        #root, #root > div {
-          background: #ffffff !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          width: auto !important;
-          max-width: none !important;
-          min-height: 0 !important;
+        .no-print {
+          display: none !important;
         }
+
+        #root,
+        #root > div,
         main {
+          width: 297mm !important;
           max-width: none !important;
-          width: auto !important;
-          padding: 0 !important;
+          min-width: 297mm !important;
           margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
         }
+
         main .flex.flex-col.items-center {
           display: block !important;
-          gap: 0 !important;
+          width: 297mm !important;
+          max-width: none !important;
           margin: 0 !important;
           padding: 0 !important;
-          width: auto !important;
+          gap: 0 !important;
         }
 
-        /* the on-screen scaling shell must not affect paper */
         .sheet-scale {
-          width: auto !important;
-          height: auto !important;
+          width: 297mm !important;
+          height: 210mm !important;
           margin: 0 !important;
           padding: 0 !important;
+        }
+
+        .print-page {
+          position: relative !important;
+          box-sizing: border-box !important;
+          width: 297mm !important;
+          height: 210mm !important;
+          min-width: 297mm !important;
+          min-height: 210mm !important;
+          max-width: 297mm !important;
+          max-height: 210mm !important;
+          margin: 0 !important;
+          padding-top: ${PAGE.padTop}mm !important;
+          padding-bottom: ${PAGE.padBottom}mm !important;
+          padding-left: ${PAGE.padLeft}mm !important;
+          padding-right: ${PAGE.padRight}mm !important;
+          background: #ffffff !important;
+          box-shadow: none !important;
+          transform: none !important;
+          overflow: hidden !important;
+          break-after: page !important;
+          page-break-after: always !important;
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+        }
+
+        .print-page:last-child {
+          break-after: auto !important;
+          page-break-after: auto !important;
         }
 
         /*
-          One sheet per printed side, at true size. Height is a hair under
-          210mm: at exactly 210mm a sub-pixel rounding in the layout can tip
-          the sheet onto a second, blank page.
-        */
-        .print-page {
-          box-sizing: border-box !important;
-          width: 297mm !important;
-          height: 209.7mm !important;
-          margin: 0 !important;
-          box-shadow: none !important;
+         * Keep the exact two-column window used by Preview.
+         * Preview already creates a 297mm A4 sheet and places two
+         * 134.5mm columns inside it. Printing must not collapse that
+         * window to one column.
+         */
+        .print-page > .relative.overflow-hidden {
+          position: relative !important;
+          display: block !important;
+          width: ${2 * COL_W + PAGE.gap}mm !important;
+          height: ${USABLE_H}mm !important;
           overflow: hidden !important;
-          transform: none !important;
-          break-after: page;
-          page-break-after: always;
-          break-inside: avoid;
-          page-break-inside: avoid;
         }
-        .print-page:last-child { break-after: auto; page-break-after: auto; }
+
+        .print-page .exam-flow {
+          position: absolute !important;
+          top: 0 !important;
+          height: ${USABLE_H}mm !important;
+          width: ${Math.max(1, columnCount) * (COL_W + PAGE.gap)}mm !important;
+          column-width: ${COL_W}mm !important;
+          column-gap: ${PAGE.gap}mm !important;
+          column-fill: auto !important;
+          overflow: visible !important;
+          transform: none !important;
+        }
+
+        .print-page .exam-flow .exam-header-block,
+        .print-page .exam-flow .part-head-block,
+        .print-page .exam-flow table,
+        .print-page .exam-flow img {
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+        }
+
+        .exam-flow,
+        .exam-flow * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
       }
     `}</style>
     <div className="min-h-screen bg-slate-50 pb-20">
@@ -1678,16 +1703,6 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
                   <Eye size={16} />
                   <span className="hidden sm:inline">Preview</span>
                 </button>
-                <button
-                  onClick={() => setActiveTab('rbt')}
-                  className={cn(
-                    "px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2",
-                    activeTab === 'rbt' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-600 hover:text-slate-900"
-                  )}
-                >
-                  <Table2 size={16} />
-                  <span className="hidden sm:inline">RBT</span>
-                </button>
               </div>
             </div>
           </div>
@@ -1696,11 +1711,9 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
 
       <main className={cn(
         "mx-auto px-4 sm:px-6 lg:px-8 py-8",
-        activeTab === 'preview' || activeTab === 'rbt' ? "max-w-[1300px]" : "max-w-5xl"
+        activeTab === 'preview' ? "max-w-[1300px]" : "max-w-5xl"
       )}>
-        {activeTab === 'rbt' ? (
-          <RbtTab examData={examData} setExamData={setExamData} formatDate={formatDate} />
-        ) : activeTab === 'edit' ? (
+        {activeTab === 'edit' ? (
           <div className="space-y-8">
             {/* Voice typing controls (language + maths mode + cheat sheet) */}
             <VoiceSettingsBar />
@@ -1775,32 +1788,6 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
                             </label>
                           );
                         })}
-                        <div className="border-t border-slate-200 pt-1 mt-1">
-                          <label className="flex items-center gap-3 p-2 hover:bg-indigo-50 rounded-lg cursor-pointer transition-colors">
-                            <input
-                              type="checkbox"
-                              checked={otherProgram !== ''}
-                              onChange={toggleOtherProgram}
-                              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                            />
-                            <span className={cn("text-sm", otherProgram !== '' ? "font-semibold text-indigo-700" : "text-slate-600")}>
-                              Others
-                            </span>
-                          </label>
-
-                          {otherProgram !== '' && (
-                            <div className="px-2 pb-2 pl-9">
-                              <input
-                                type="text"
-                                value={otherProgram.trimStart()}
-                                onChange={(e) => handleOtherProgramChange(e.target.value)}
-                                placeholder="Type programme name"
-                                autoFocus
-                                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none text-sm"
-                              />
-                            </div>
-                          )}
-                        </div>
                       </div>
                     </div>
                   </div>
@@ -2365,7 +2352,7 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
                   and on paper.
                 */
                 const windowW = isDuplicated ? COL_W : 2 * COL_W + PAGE.gap;
-                const flowW = Math.max(1, columnCount) * COL_W + Math.max(0, columnCount - 1) * PAGE.gap;
+                const flowW = Math.max(1, columnCount) * (COL_W + PAGE.gap);
                 const offset = isDuplicated ? 0 : sheetIndex * 2 * (COL_W + PAGE.gap);
 
                 const flow = (shift: number) => (
@@ -2482,6 +2469,14 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
               >
                 <Printer size={20} />
                 Print Paper
+              </button>
+              <button
+                onClick={exportWord}
+                disabled={isExporting}
+                className="bg-emerald-600 text-white px-8 py-3 rounded-xl font-semibold flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-md flex-1 md:flex-initial justify-center disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <FileText size={20} />
+                {isExporting ? 'Rendering equations...' : 'Download Word Format'}
               </button>
             </div>
           </div>
