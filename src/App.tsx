@@ -14,6 +14,7 @@ import {
   Printer,
   Table2,
   ShieldCheck,
+  ClipboardCheck,
   BookOpenCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -38,6 +39,7 @@ import { MM, PAGE, USABLE_H, COL_W, mm, countColumns } from './lib/page';
 import { RbtTab } from './components/RbtTab';
 import { QualityTab } from './components/QualityTab';
 import { CoverageTab } from './components/CoverageTab';
+import { ReviewTab } from './components/ReviewTab';
 import type { RbtMeta } from './types';
 
 const PROGRAMS = [
@@ -367,7 +369,7 @@ export default function App() {
       return raw ? (JSON.parse(raw).savedAt ?? null) : null;
     } catch { return null; }
   });
-  const [activeTab, setActiveTab] = useState<'edit' | 'preview' | 'rbt' | 'quality' | 'coverage'>('edit');
+  const [activeTab, setActiveTab] = useState<'edit' | 'preview' | 'rbt' | 'quality' | 'coverage' | 'review'>('edit');
   const [expandedPart, setExpandedPart] = useState<string | null>(null);
 
   // Custom programme entered through the "Others" option.
@@ -1712,6 +1714,16 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
                   <BookOpenCheck size={16} />
                   <span className="hidden sm:inline">Coverage</span>
                 </button>
+                <button
+                  onClick={() => setActiveTab('review')}
+                  className={cn(
+                    "px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2",
+                    activeTab === 'review' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                  )}
+                >
+                  <ClipboardCheck size={16} />
+                  <span className="hidden sm:inline">Review</span>
+                </button>
               </div>
             </div>
           </div>
@@ -1720,12 +1732,14 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
 
       <main className={cn(
         "mx-auto px-4 sm:px-6 lg:px-8 py-8",
-        activeTab === 'preview' || activeTab === 'rbt' ? "max-w-[1300px]" : activeTab === 'quality' || activeTab === 'coverage' ? "max-w-6xl" : "max-w-5xl"
+        activeTab === 'preview' || activeTab === 'rbt' ? "max-w-[1300px]" : activeTab === 'quality' || activeTab === 'coverage' || activeTab === 'review' ? "max-w-6xl" : "max-w-5xl"
       )}>
         {activeTab === 'rbt' ? (
           <RbtTab examData={examData} setExamData={setExamData} formatDate={formatDate} />
         ) : activeTab === 'quality' ? (
           <QualityTab examData={examData} onGoToEdit={() => setActiveTab('edit')} />
+        ) : activeTab === 'review' ? (
+          <ReviewTab examData={examData} onGoToEdit={() => setActiveTab('edit')} onGoToCoverage={() => setActiveTab('coverage')} />
         ) : activeTab === 'coverage' ? (
           <CoverageTab examData={examData} onGoToEdit={() => setActiveTab('edit')} />
         ) : activeTab === 'edit' ? (
