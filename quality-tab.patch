@@ -1,0 +1,831 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index 712fa6a..527ec02 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -12,7 +12,8 @@ import {
+   Image as ImageIcon,
+   CheckCircle2,
+   Printer,
+-  Table2
++  Table2,
++  ShieldCheck
+ } from 'lucide-react';
+ import { motion, AnimatePresence } from 'motion/react';
+ import jsPDF from 'jspdf';
+@@ -34,6 +35,7 @@ import {
+ import { loadBundledLogo, fileToPngDataUrl } from './lib/logo';
+ import { MM, PAGE, USABLE_H, COL_W, mm, countColumns } from './lib/page';
+ import { RbtTab } from './components/RbtTab';
++import { QualityTab } from './components/QualityTab';
+ import type { RbtMeta } from './types';
+ 
+ const PROGRAMS = [
+@@ -363,7 +365,7 @@ export default function App() {
+       return raw ? (JSON.parse(raw).savedAt ?? null) : null;
+     } catch { return null; }
+   });
+-  const [activeTab, setActiveTab] = useState<'edit' | 'preview' | 'rbt'>('edit');
++  const [activeTab, setActiveTab] = useState<'edit' | 'preview' | 'rbt' | 'quality'>('edit');
+   const [expandedPart, setExpandedPart] = useState<string | null>(null);
+ 
+   // Custom programme entered through the "Others" option.
+@@ -1688,6 +1690,16 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}}
+                   <Table2 size={16} />
+                   <span className="hidden sm:inline">RBT</span>
+                 </button>
++                <button
++                  onClick={() => setActiveTab('quality')}
++                  className={cn(
++                    "px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2",
++                    activeTab === 'quality' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-600 hover:text-slate-900"
++                  )}
++                >
++                  <ShieldCheck size={16} />
++                  <span className="hidden sm:inline">Quality</span>
++                </button>
+               </div>
+             </div>
+           </div>
+@@ -1696,10 +1708,12 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}}
+ 
+       <main className={cn(
+         "mx-auto px-4 sm:px-6 lg:px-8 py-8",
+-        activeTab === 'preview' || activeTab === 'rbt' ? "max-w-[1300px]" : "max-w-5xl"
++        activeTab === 'preview' || activeTab === 'rbt' ? "max-w-[1300px]" : activeTab === 'quality' ? "max-w-6xl" : "max-w-5xl"
+       )}>
+         {activeTab === 'rbt' ? (
+           <RbtTab examData={examData} setExamData={setExamData} formatDate={formatDate} />
++        ) : activeTab === 'quality' ? (
++          <QualityTab examData={examData} onGoToEdit={() => setActiveTab('edit')} />
+         ) : activeTab === 'edit' ? (
+           <div className="space-y-8">
+             {/* Voice typing controls (language + maths mode + cheat sheet) */}
+diff --git a/src/components/QualityTab.tsx b/src/components/QualityTab.tsx
+new file mode 100644
+index 0000000..f343294
+--- /dev/null
++++ b/src/components/QualityTab.tsx
+@@ -0,0 +1,251 @@
++/*
++ * Quality tab — a first-pass review of the typed questions.
++ *
++ * Shows an overall score, paper-level problems (marks that do not add up,
++ * missing header fields, RBT balance), then each question with its own score
++ * and the specific things wrong with it. All checks live in lib/quality.ts.
++ */
++import React, { useMemo, useState } from 'react';
++import {
++  ShieldCheck, AlertTriangle, AlertCircle, Info, CheckCircle2,
++  ChevronDown, ChevronRight, ClipboardCopy, Edit3,
++} from 'lucide-react';
++import { ExamData } from '../types';
++import { cn } from '../utils';
++import { MathText } from './MathText';
++import { analyseQuality, reportToText, Issue, Grade, Severity } from '../lib/quality';
++
++interface QualityTabProps {
++  examData: ExamData;
++  onGoToEdit: () => void;
++}
++
++const GRADE_STYLE: Record<Grade, { text: string; bg: string; ring: string; bar: string }> = {
++  Excellent: { text: 'text-emerald-700', bg: 'bg-emerald-50', ring: 'ring-emerald-200', bar: 'bg-emerald-500' },
++  Good: { text: 'text-sky-700', bg: 'bg-sky-50', ring: 'ring-sky-200', bar: 'bg-sky-500' },
++  'Needs work': { text: 'text-amber-700', bg: 'bg-amber-50', ring: 'ring-amber-200', bar: 'bg-amber-500' },
++  Poor: { text: 'text-rose-700', bg: 'bg-rose-50', ring: 'ring-rose-200', bar: 'bg-rose-500' },
++};
++
++const SEVERITY_ICON: Record<Severity, React.ReactNode> = {
++  error: <AlertCircle size={16} className="text-rose-600 shrink-0 mt-0.5" />,
++  warning: <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />,
++  info: <Info size={16} className="text-sky-600 shrink-0 mt-0.5" />,
++};
++
++const IssueRow: React.FC<{ issue: Issue }> = ({ issue }) => (
++  <li className="flex gap-2.5 text-sm">
++    {SEVERITY_ICON[issue.severity]}
++    <div className="min-w-0">
++      <p className="text-slate-800">
++        <span className="mr-2 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
++          {issue.category}
++        </span>
++        {issue.message}
++      </p>
++      {issue.fix && <p className="mt-0.5 text-slate-500">→ {issue.fix}</p>}
++    </div>
++  </li>
++);
++
++export const QualityTab: React.FC<QualityTabProps> = ({ examData, onGoToEdit }) => {
++  const report = useMemo(() => analyseQuality(examData), [examData]);
++  const [onlyProblems, setOnlyProblems] = useState(false);
++  const [open, setOpen] = useState<Record<string, boolean>>({});
++  const [copied, setCopied] = useState(false);
++
++  const copy = async () => {
++    try {
++      await navigator.clipboard.writeText(reportToText(examData, report));
++      setCopied(true);
++      setTimeout(() => setCopied(false), 1800);
++    } catch {
++      /* clipboard blocked — nothing useful to do */
++    }
++  };
++
++  const toggle = (id: string, defaultOpen: boolean) =>
++    setOpen((o) => ({ ...o, [id]: !(o[id] ?? defaultOpen) }));
++
++  const grade = report.grade ? GRADE_STYLE[report.grade] : null;
++
++  if (report.totals.filled === 0) {
++    return (
++      <div className="mx-auto max-w-xl rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
++        <ShieldCheck size={36} className="mx-auto text-slate-300" />
++        <h2 className="mt-3 text-lg font-semibold text-slate-900">Nothing to check yet</h2>
++        <p className="mt-1 text-sm text-slate-500">Type some questions on the Edit tab, then come back for a quality review.</p>
++        <button
++          onClick={onGoToEdit}
++          className="mt-5 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
++        >
++          <Edit3 size={16} /> Go to Edit
++        </button>
++      </div>
++    );
++  }
++
++  // Group questions by part, in order.
++  const parts: { id: string; name: string; items: typeof report.questions }[] = [];
++  for (const q of report.questions) {
++    let p = parts.find((x) => x.id === q.partId);
++    if (!p) { p = { id: q.partId, name: q.partName, items: [] }; parts.push(p); }
++    p.items.push(q);
++  }
++
++  return (
++    <div className="space-y-6">
++      {/* Summary */}
++      <section className="grid gap-4 md:grid-cols-[280px_1fr]">
++        <div className={cn('rounded-2xl p-6 ring-1', grade?.bg, grade?.ring)}>
++          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Overall quality</p>
++          <div className="mt-2 flex items-baseline gap-2">
++            <span className={cn('text-5xl font-bold tabular-nums', grade?.text)}>{report.score}</span>
++            <span className="text-slate-400">/ 100</span>
++          </div>
++          <p className={cn('mt-1 text-lg font-semibold', grade?.text)}>{report.grade}</p>
++          <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/70">
++            <div className={cn('h-full rounded-full', grade?.bar)} style={{ width: `${report.score}%` }} />
++          </div>
++          <p className="mt-3 text-xs text-slate-500">
++            {report.totals.filled} of {report.totals.questions} questions checked
++          </p>
++        </div>
++
++        <div className="rounded-2xl border border-slate-200 bg-white p-6">
++          <div className="flex flex-wrap items-start justify-between gap-3">
++            <div className="flex gap-6">
++              <Stat n={report.totals.errors} label="Errors" tone="text-rose-600" />
++              <Stat n={report.totals.warnings} label="Warnings" tone="text-amber-600" />
++              <Stat n={report.totals.infos} label="Notes" tone="text-sky-600" />
++            </div>
++            <div className="flex items-center gap-2">
++              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
++                <input
++                  type="checkbox"
++                  checked={onlyProblems}
++                  onChange={(e) => setOnlyProblems(e.target.checked)}
++                  className="rounded border-slate-300"
++                />
++                Only show problems
++              </label>
++              <button
++                onClick={copy}
++                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
++              >
++                <ClipboardCopy size={15} /> {copied ? 'Copied' : 'Copy report'}
++              </button>
++            </div>
++          </div>
++
++          {Object.keys(report.rbtCounts).length > 0 && (
++            <div className="mt-5">
++              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">RBT spread</p>
++              <div className="mt-2 flex flex-wrap gap-2">
++                {['L1', 'L2', 'L3', 'L4', 'L5', 'L6'].map((l) => (
++                  <span
++                    key={l}
++                    className={cn(
++                      'rounded-md px-2.5 py-1 text-xs font-medium',
++                      report.rbtCounts[l] ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-400'
++                    )}
++                  >
++                    {l} · {report.rbtCounts[l] ?? 0}
++                  </span>
++                ))}
++              </div>
++            </div>
++          )}
++        </div>
++      </section>
++
++      {/* Paper-level */}
++      <section className="rounded-2xl border border-slate-200 bg-white">
++        <div className="border-b border-slate-100 px-6 py-4">
++          <h2 className="font-semibold text-slate-900">Whole paper</h2>
++        </div>
++        <div className="px-6 py-4">
++          {report.paperIssues.length === 0 ? (
++            <p className="flex items-center gap-2 text-sm text-emerald-700">
++              <CheckCircle2 size={16} /> Marks, structure and header all check out.
++            </p>
++          ) : (
++            <ul className="space-y-3">
++              {report.paperIssues.map((i, k) => <IssueRow key={k} issue={i} />)}
++            </ul>
++          )}
++        </div>
++      </section>
++
++      {/* Per question */}
++      {parts.map((part) => {
++        const items = onlyProblems ? part.items.filter((q) => q.issues.length > 0) : part.items;
++        if (items.length === 0) return null;
++        return (
++          <section key={part.id} className="space-y-3">
++            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{part.name}</h2>
++            {items.map((q) => {
++              const g = GRADE_STYLE[q.grade];
++              const hasIssues = q.issues.length > 0;
++              const isOpen = open[q.questionId] ?? hasIssues;
++              return (
++                <div key={q.questionId} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
++                  <button
++                    onClick={() => toggle(q.questionId, hasIssues)}
++                    className="flex w-full items-start gap-3 px-5 py-4 text-left hover:bg-slate-50"
++                  >
++                    {isOpen ? <ChevronDown size={18} className="mt-0.5 shrink-0 text-slate-400" /> : <ChevronRight size={18} className="mt-0.5 shrink-0 text-slate-400" />}
++                    <span className="mt-0.5 w-9 shrink-0 text-sm font-semibold text-slate-500">Q{q.number}</span>
++                    <span className="min-w-0 flex-1 text-sm text-slate-800">
++                      {q.isEmpty
++                        ? <em className="text-slate-400">Blank</em>
++                        : <span className="line-clamp-2"><MathText text={q.text} /></span>}
++                    </span>
++                    <span className="flex shrink-0 items-center gap-2">
++                      {q.rbtCode && (
++                        <span className="rounded bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">{q.rbtCode}</span>
++                      )}
++                      <span className={cn('rounded px-2 py-0.5 text-xs font-semibold tabular-nums', g.bg, g.text)}>
++                        {q.isEmpty ? '—' : q.score}
++                      </span>
++                    </span>
++                  </button>
++                  {isOpen && (
++                    <div className="border-t border-slate-100 bg-slate-50/50 px-5 py-4">
++                      {hasIssues ? (
++                        <ul className="space-y-3">
++                          {q.issues.map((i, k) => <IssueRow key={k} issue={i} />)}
++                        </ul>
++                      ) : (
++                        <p className="flex items-center gap-2 text-sm text-emerald-700">
++                          <CheckCircle2 size={16} /> No problems found.
++                        </p>
++                      )}
++                      <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
++                        <span>{q.wordCount} words · {q.marks} marks{q.rbtLabel ? ` · reads as ${q.rbtLabel}` : ''}</span>
++                        <button onClick={onGoToEdit} className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:text-indigo-800">
++                          <Edit3 size={12} /> Edit
++                        </button>
++                      </div>
++                    </div>
++                  )}
++                </div>
++              );
++            })}
++          </section>
++        );
++      })}
++
++      <p className="pb-4 text-center text-xs text-slate-400">
++        Automatic first-pass review. It checks wording, structure and marks — not whether the mathematics is correct or matches your syllabus.
++      </p>
++    </div>
++  );
++};
++
++const Stat: React.FC<{ n: number; label: string; tone: string }> = ({ n, label, tone }) => (
++  <div>
++    <div className={cn('text-3xl font-bold tabular-nums', tone)}>{n}</div>
++    <div className="text-xs text-slate-500">{label}</div>
++  </div>
++);
+diff --git a/src/lib/bloom.ts b/src/lib/bloom.ts
+index dec5090..c37765f 100644
+--- a/src/lib/bloom.ts
++++ b/src/lib/bloom.ts
+@@ -202,7 +202,17 @@ export function classifyRbt(questionText: string): RbtSuggestion {
+       const level = Number(key) as RbtLevel;
+ 
+       for (const verb of VERBS[level]) {
+-        const idx = lower.indexOf(' ' + verb);
++        // Match the verb as a whole word. A plain prefix match let participles
++        // through — "shown below" scored as the verb "show", "defined by" as
++        // "define", "stated" as "state" — and tagged ordinary questions L1.
++        let idx = -1;
++        for (let from = 0; ; ) {
++          const found = lower.indexOf(' ' + verb, from);
++          if (found < 0) break;
++          const next = lower.charAt(found + 1 + verb.length);
++          if (!/[a-z]/.test(next)) { idx = found; break; }
++          from = found + 1;
++        }
+         if (idx < 0) continue;
+ 
+         // Position weighting: an imperative opening the first sentence is
+diff --git a/src/lib/quality.ts b/src/lib/quality.ts
+new file mode 100644
+index 0000000..a8b1558
+--- /dev/null
++++ b/src/lib/quality.ts
+@@ -0,0 +1,483 @@
++/**
++ * Question-paper quality checker.
++ *
++ * Rule-based and fully offline: no API key, same result every run. It looks
++ * for things a reviewer would flag on a first read — blank or placeholder
++ * questions, vague wording, unbalanced maths, marks that do not add up,
++ * references to a figure that is not there, near-duplicate questions, and a
++ * level of demand that does not fit the marks.
++ *
++ * It is a first-pass reviewer, not a subject expert. It cannot tell whether a
++ * question is mathematically correct or whether it matches the syllabus.
++ */
++import type { ExamData, ExamPart, Question } from '../types';
++import { classifyRbt, analysePaper, RBT_LABELS, RbtLevel } from './bloom';
++
++export type Severity = 'error' | 'warning' | 'info';
++
++export interface Issue {
++  severity: Severity;
++  /** Short category shown as a tag, e.g. "Clarity". */
++  category: string;
++  message: string;
++  /** What to do about it. */
++  fix?: string;
++}
++
++export type Grade = 'Excellent' | 'Good' | 'Needs work' | 'Poor';
++
++export interface QuestionReport {
++  number: number;
++  partId: string;
++  partName: string;
++  questionId: string;
++  text: string;
++  marks: number;
++  wordCount: number;
++  rbtCode?: string;
++  rbtLabel?: string;
++  score: number;
++  grade: Grade;
++  issues: Issue[];
++  isEmpty: boolean;
++}
++
++export interface PaperReport {
++  /** null when there is nothing filled in yet to score. */
++  score: number | null;
++  grade: Grade | null;
++  questions: QuestionReport[];
++  paperIssues: Issue[];
++  totals: { questions: number; filled: number; errors: number; warnings: number; infos: number };
++  rbtCounts: Record<string, number>;
++}
++
++/* ------------------------------------------------------------------ */
++/* text helpers                                                        */
++/* ------------------------------------------------------------------ */
++
++const DEDUCTION: Record<Severity, number> = { error: 25, warning: 12, info: 4 };
++
++export function gradeFor(score: number): Grade {
++  if (score >= 85) return 'Excellent';
++  if (score >= 70) return 'Good';
++  if (score >= 50) return 'Needs work';
++  return 'Poor';
++}
++
++/** Text with maths replaced by a placeholder, so word counts and wording checks ignore LaTeX. */
++function proseOnly(text: string): string {
++  return text.replace(/\$\$[\s\S]*?\$\$|\$[^$]*\$/g, ' MATH ').replace(/\s+/g, ' ').trim();
++}
++
++function wordsOf(text: string): string[] {
++  return proseOnly(text).split(/\s+/).filter((w) => /[A-Za-z]/.test(w) && w !== 'MATH');
++}
++
++function fullText(q: Question): string {
++  return [q.text, ...(q.subQuestions ?? []).map((s) => s.text)].filter((t) => t && t.trim()).join(' ');
++}
++
++function tokens(text: string): Set<string> {
++  const t = text.toLowerCase().replace(/\$/g, ' ');
++  return new Set(t.match(/\\[a-z]+|[a-z0-9]+|[^\sa-z0-9]/g) ?? []);
++}
++
++function jaccard(a: Set<string>, b: Set<string>): number {
++  if (!a.size || !b.size) return 0;
++  let inter = 0;
++  a.forEach((x) => { if (b.has(x)) inter++; });
++  return inter / (a.size + b.size - inter);
++}
++
++const MISSPELLINGS: Record<string, string> = {
++  recieve: 'receive', seperate: 'separate', occured: 'occurred', occurence: 'occurrence',
++  definately: 'definitely', calculte: 'calculate', calcualte: 'calculate', evalute: 'evaluate',
++  evaulate: 'evaluate', explian: 'explain', explaine: 'explain', discribe: 'describe',
++  desribe: 'describe', defination: 'definition', difinition: 'definition', theorm: 'theorem',
++  fuction: 'function', funtion: 'function', intergral: 'integral', integeral: 'integral',
++  matirx: 'matrix', metrix: 'matrix', vecter: 'vector', probablity: 'probability',
++  probabilty: 'probability', diffrent: 'different', diferent: 'different', beteween: 'between',
++  wheather: 'whether', wich: 'which', thier: 'their', untill: 'until', comparision: 'comparison',
++  relevent: 'relevant', neccessary: 'necessary', necesary: 'necessary', coefficent: 'coefficient',
++  convergance: 'convergence', divergance: 'divergence', sequense: 'sequence', seqence: 'sequence',
++  proove: 'prove', slove: 'solve', obtian: 'obtain', verfiy: 'verify',
++};
++const REAL_MISSPELLINGS = Object.entries(MISSPELLINGS);
++
++/* ------------------------------------------------------------------ */
++/* per-question checks                                                 */
++/* ------------------------------------------------------------------ */
++
++function checkQuestion(q: Question, part: ExamPart): { issues: Issue[]; rbt?: ReturnType<typeof classifyRbt>; words: number } {
++  const issues: Issue[] = [];
++  const text = fullText(q);
++  const prose = proseOnly(text);
++  const words = wordsOf(text);
++  const marks = part.marksPerQuestion;
++  const subs = q.subQuestions ?? [];
++  const add = (severity: Severity, category: string, message: string, fix?: string) =>
++    issues.push({ severity, category, message, fix });
++
++  if (!text.trim()) {
++    add('error', 'Completeness', 'This question is blank.', 'Type the question, or reduce the question count for this part.');
++    return { issues, words: 0 };
++  }
++
++  // Placeholder / test text
++  if (/\b(lorem|ipsum|asdf|qwerty|xxx+|todo|tbd|test question|sample question|dummy)\b/i.test(prose)) {
++    add('error', 'Completeness', 'Looks like placeholder or test text.', 'Replace it with the real question.');
++  }
++
++  // Too short
++  const hasMath = /\$/.test(text);
++  if (words.length < 3 && !(hasMath && words.length >= 1)) {
++    add('warning', 'Clarity', `Very short (${words.length} word${words.length === 1 ? '' : 's'}). Students may not know what is being asked.`,
++      'State the task and the object it applies to, e.g. “Define a group and give one example.”');
++  }
++
++  // Too long
++  if (words.length > 70) {
++    add('warning', 'Length', `Long stem (${words.length} words). Long questions cost reading time and hide the actual task.`,
++      'Trim the setup, or move data into a table and keep the question itself short.');
++  } else if (marks > 0 && marks <= 2 && words.length > 35) {
++    add('info', 'Length', `${words.length} words for a ${marks}-mark question is long.`);
++  }
++
++  // Bloom analysis
++  const rbt = classifyRbt(text);
++  const level = rbt.level as RbtLevel;
++
++  // No clear task verb
++  const endsWithQuestion = /\?\s*$/.test(prose);
++  if (rbt.matchedVerbs.length === 0 && !endsWithQuestion) {
++    add('warning', 'Clarity', 'No clear task verb found (define, explain, solve, prove…).',
++      'Open with the action you want, so it is obvious what the student must do.');
++  }
++
++  // Several tasks stuffed into one stem
++  if (subs.length === 0 && rbt.matchedVerbs.length >= 3) {
++    add(marks <= 4 ? 'warning' : 'info', 'Clarity',
++      `Packs ${rbt.matchedVerbs.length} tasks into one stem (${rbt.matchedVerbs.slice(0, 3).join(', ')}).`,
++      'Split into (a), (b), (c) and give marks for each, so students and markers know the split.');
++  }
++
++  // Vague wording
++  const vague: [RegExp, string, string][] = [
++    [/\bwrite (?:about|on)\b/i, '“Write about” has no boundary.', 'Name the specific aspect to cover.'],
++    [/\bwhat do you (?:know|understand)\b/i, '“What do you know/understand” cannot be marked objectively.', 'Replace with a concrete task such as “State…” or “Explain…”.'],
++    [/\b(etc\.?|and so on|and so forth)\b/i, '“etc.” leaves the expected scope open.', 'List what you actually expect.'],
++    [/\b(some|several|various|a few|many)\b/i, 'Unquantified wording (“some / several / various”).', 'Give a number, e.g. “two examples”.'],
++    [/\b(good|appropriate|suitable|proper|nice)\b/i, 'Subjective word that a marker cannot check.', 'Say what makes an answer acceptable.'],
++  ];
++  for (const [re, msg, fix] of vague) {
++    if (re.test(prose)) add('warning', 'Clarity', msg, fix);
++  }
++  if (/^\s*discuss\b/i.test(prose) && words.length < 8) {
++    add('warning', 'Clarity', '“Discuss” on its own is open-ended.', 'Say what to discuss, and from which angle.');
++  }
++  if (/\bbriefly\b/i.test(prose) && marks >= 8) {
++    add('warning', 'Marks', `“Briefly” sits oddly with a ${marks}-mark question.`, 'Either drop “briefly” or lower the marks.');
++  }
++
++  // Missing figure / table
++  const refersToFigure =
++    /\b(?:given|shown|following|above|below|in the)\s+(?:figure|fig\.?|diagram|graph|table|circuit|network)\b|\b(?:figure|fig\.?|diagram|graph|table|circuit|network)\s+(?:given|shown|below|above)\b|\bfig(?:ure)?\.?\s*\d+/i.test(prose);
++  if (refersToFigure && (q.images?.length ?? 0) === 0 && (q.tables?.length ?? 0) === 0) {
++    add('warning', 'Completeness', 'Refers to a figure, graph or table, but none is attached to this question.',
++      'Add the image or table in the Edit tab, or reword the question.');
++  }
++
++  // Blank sub-question
++  if (subs.some((s) => !s.text.trim())) {
++    add('warning', 'Completeness', 'One or more sub-questions are blank.', 'Fill them in or delete them.');
++  }
++
++  // Sub-question marks
++  if (subs.length > 0) {
++    const withMarks = subs.filter((s) => typeof s.marks === 'number' && s.marks > 0);
++    if (withMarks.length === subs.length) {
++      const sum = withMarks.reduce((a, s) => a + (s.marks ?? 0), 0);
++      if (marks > 0 && sum !== marks) {
++        add('error', 'Marks', `Sub-question marks add up to ${sum}, but this part gives ${marks} per question.`,
++          `Adjust the sub-question marks so they total ${marks}.`);
++      }
++    } else if (withMarks.length > 0) {
++      add('warning', 'Marks', 'Marks are given on some sub-questions but not all.', 'Give every sub-question a mark, or none.');
++    }
++  }
++
++  // Level of demand vs marks
++  if (marks > 0 && marks <= 2 && level >= 5) {
++    add('warning', 'Marks', `Reads as ${rbt.code} (${RBT_LABELS[level]}) but carries only ${marks} mark${marks === 1 ? '' : 's'}.`,
++      'Higher-order tasks need more marks and time, or a simpler task.');
++  }
++  if (marks >= 8 && level <= 2 && subs.length === 0) {
++    add('warning', 'Marks', `Reads as ${rbt.code} (${RBT_LABELS[level]}) but is worth ${marks} marks.`,
++      'Add an application or analysis step, or move it to a lower-mark part.');
++  }
++
++  // Mechanical / typing errors
++  const dup = prose.match(/\b([A-Za-z]{2,})\s+\1\b/i);
++  if (dup && !/^(that|had)$/i.test(dup[1])) {
++    add('warning', 'Typing', `Repeated word: “${dup[0]}”.`, 'Delete the duplicate.');
++  }
++  const lower = prose.toLowerCase();
++  const found = REAL_MISSPELLINGS.filter(([wrong]) => new RegExp(`\\b${wrong}\\b`).test(lower));
++  for (const [wrong, right] of found.slice(0, 3)) {
++    add('warning', 'Typing', `Possible misspelling: “${wrong}” → “${right}”.`);
++  }
++  if (/\$(?!\$)/.test(text.replace(/\$\$/g, ''))) {
++    const singles = (text.replace(/\$\$/g, '').match(/\$/g) ?? []).length;
++    if (singles % 2 !== 0) {
++      add('error', 'Maths', 'Unbalanced $ — the maths will not render properly.', 'Every formula needs an opening and a closing $.');
++    }
++  }
++  if ((text.match(/\$\$/g) ?? []).length % 2 !== 0) {
++    add('error', 'Maths', 'Unbalanced $$ — the display formula will not render.', 'Close the formula with $$.');
++  }
++  const noMath = text.replace(/\$\$[\s\S]*?\$\$|\$[^$]*\$/g, '');
++  const open = (noMath.match(/\(/g) ?? []).length;
++  const close = (noMath.match(/\)/g) ?? []).length;
++  if (open !== close) {
++    add('warning', 'Typing', 'Brackets do not match.', 'Check for a missing “(” or “)”.');
++  }
++  if (/\s{2,}/.test(q.text.trim())) {
++    add('info', 'Typing', 'Double spaces in the question.');
++  }
++  if (/\s[,.;?]/.test(prose)) {
++    add('info', 'Typing', 'Space before a punctuation mark.');
++  }
++  if (/^[a-z]/.test(q.text.trim())) {
++    add('info', 'Typing', 'Does not start with a capital letter.');
++  }
++  const endsOk = /[.?:)]\s*$|\$\s*$/.test(q.text.trim()) || subs.length > 0;
++  if (!endsOk) {
++    add('info', 'Typing', 'No closing punctuation.', 'End with a full stop or question mark.');
++  }
++  if (/^(what|why|how|which|when|who|is|are|does|do|can|if)\b/i.test(prose) && !/[?]\s*$/.test(prose) && subs.length === 0 && /[.]\s*$/.test(prose)) {
++    add('info', 'Typing', 'Phrased as a question but ends with a full stop.', 'Use a question mark.');
++  }
++
++  // Negative wording
++  if (/\b(not|except|never|cannot|n't)\b/i.test(prose) && /\b(which|following|statement)\b/i.test(prose)) {
++    add('info', 'Clarity', 'Negative wording (“which is NOT…”) trips up careful students.', 'Put the negative word in capitals or rephrase positively.');
++  }
++
++  return { issues, rbt, words: words.length };
++}
++
++/* ------------------------------------------------------------------ */
++/* paper-level checks                                                  */
++/* ------------------------------------------------------------------ */
++
++function parseMarks(s: string): number | null {
++  const m = (s ?? '').match(/\d+(?:\.\d+)?/);
++  return m ? parseFloat(m[0]) : null;
++}
++
++function checkPaper(data: ExamData): Issue[] {
++  const issues: Issue[] = [];
++  const add = (severity: Severity, category: string, message: string, fix?: string) =>
++    issues.push({ severity, category, message, fix });
++
++  // Header
++  const missing: string[] = [];
++  if (!data.courseCode?.trim()) missing.push('course code');
++  if (!data.courseName?.trim()) missing.push('course name');
++  if (!data.semester?.trim()) missing.push('semester');
++  if (!data.duration?.trim()) missing.push('duration');
++  if (!data.maxMarks?.trim()) missing.push('maximum marks');
++  if (missing.length) {
++    add('warning', 'Header', `Header is missing: ${missing.join(', ')}.`, 'Fill these in on the Edit tab.');
++  }
++
++  // Marks arithmetic
++  let sum = 0;
++  for (const part of data.parts) {
++    const attempt = part.questionsToAnswer ?? part.questionCount;
++    const expected = attempt * part.marksPerQuestion;
++    sum += expected;
++
++    if (part.totalMarks !== expected) {
++      add('error', 'Marks', `${part.name}: total is ${part.totalMarks}, but ${attempt} × ${part.marksPerQuestion} = ${expected}.`,
++        'Correct the marks per question or the number to answer.');
++    }
++    if (part.questions.length !== part.questionCount) {
++      add('warning', 'Structure', `${part.name}: says ${part.questionCount} questions but contains ${part.questions.length}.`);
++    }
++    if (attempt > part.questions.length) {
++      add('error', 'Structure', `${part.name}: students must answer ${attempt}, but only ${part.questions.length} are set.`);
++    }
++    if (!part.instructions?.trim()) {
++      add('info', 'Instructions', `${part.name} has no instruction line.`, 'Add one, e.g. “Answer all the questions”.');
++    } else {
++      const any = part.instructions.match(/any\s+(\d+)/i);
++      if (any && parseInt(any[1], 10) !== attempt) {
++        add('error', 'Instructions', `${part.name}: instruction says “any ${any[1]}” but the part is set to answer ${attempt}.`,
++          'Make the instruction and the question count agree.');
++      }
++      if (/answer all/i.test(part.instructions) && attempt !== part.questionCount) {
++        add('error', 'Instructions', `${part.name}: says “Answer all” but only ${attempt} of ${part.questionCount} are to be answered.`);
++      }
++    }
++  }
++  const max = parseMarks(data.maxMarks);
++  if (max !== null && sum !== max) {
++    add('error', 'Marks', `Parts add up to ${sum} marks, but the header says ${max}.`,
++      'Either the header or the part marks need correcting.');
++  }
++  return issues;
++}
++
++/* ------------------------------------------------------------------ */
++/* entry point                                                         */
++/* ------------------------------------------------------------------ */
++
++export function analyseQuality(data: ExamData): PaperReport {
++  const reports: QuestionReport[] = [];
++  const levels: RbtLevel[] = [];
++  const levelById: Record<string, RbtLevel> = {};
++  const tokenCache: { idx: number; set: Set<string> }[] = [];
++
++  let n = 1;
++  for (const part of data.parts) {
++    for (const q of part.questions) {
++      const { issues, rbt, words } = checkQuestion(q, part);
++      const text = fullText(q);
++      const isEmpty = !text.trim();
++      if (rbt && !isEmpty) {
++        levels.push(rbt.level as RbtLevel);
++        levelById[q.id] = rbt.level as RbtLevel;
++      }
++      const idx = reports.length;
++      reports.push({
++        number: n++,
++        partId: part.id,
++        partName: part.name,
++        questionId: q.id,
++        text,
++        marks: part.marksPerQuestion,
++        wordCount: words,
++        rbtCode: rbt && !isEmpty ? rbt.code : undefined,
++        rbtLabel: rbt && !isEmpty ? rbt.label : undefined,
++        score: 100,
++        grade: 'Excellent',
++        issues,
++        isEmpty,
++      });
++      if (!isEmpty) tokenCache.push({ idx, set: tokens(text) });
++    }
++  }
++
++  // OR-choice fairness: an alternative should demand about the same as its twin.
++  let flat = 0;
++  for (const part of data.parts) {
++    part.questions.forEach((q, i) => {
++      const r = reports[flat + i];
++      if (q.isOr && i > 0) {
++        const prev = part.questions[i - 1];
++        const a = levelById[prev.id];
++        const b = levelById[q.id];
++        if (a && b && Math.abs(a - b) >= 2) {
++          r.issues.push({
++            severity: 'warning', category: 'Fairness',
++            message: `This is the “OR” choice for Q${reports[flat + i - 1].number}, but one is L${a} and the other L${b}. Students will pick the easier one.`,
++            fix: 'Keep OR alternatives at the same level of demand.',
++          });
++        }
++      }
++    });
++    flat += part.questions.length;
++  }
++
++  // Duplicates
++  for (let i = 0; i < tokenCache.length; i++) {
++    for (let j = i + 1; j < tokenCache.length; j++) {
++      const a = tokenCache[i], b = tokenCache[j];
++      if (a.set.size < 4 || b.set.size < 4) continue;
++      const sim = jaccard(a.set, b.set);
++      if (sim >= 0.8) {
++        reports[b.idx].issues.push({
++          severity: 'error', category: 'Duplicate',
++          message: `Almost identical to Q${reports[a.idx].number} (${Math.round(sim * 100)}% overlap).`,
++          fix: 'Replace one of them.',
++        });
++      } else if (sim >= 0.6) {
++        reports[b.idx].issues.push({
++          severity: 'warning', category: 'Duplicate',
++          message: `Very similar to Q${reports[a.idx].number} (${Math.round(sim * 100)}% overlap).`,
++          fix: 'Check these test different things.',
++        });
++      }
++    }
++  }
++
++  // Scores
++  for (const r of reports) {
++    if (r.isEmpty) { r.score = 0; r.grade = 'Poor'; continue; }
++    const cut = r.issues.reduce((a, i) => a + DEDUCTION[i.severity], 0);
++    r.score = Math.max(0, 100 - cut);
++    r.grade = gradeFor(r.score);
++  }
++
++  // Paper-level
++  const paperIssues = checkPaper(data);
++  const balance = analysePaper(levels);
++  for (const w of balance.warnings) {
++    paperIssues.push({ severity: 'warning', category: 'Balance', message: w });
++  }
++  const filledReports = reports.filter((r) => !r.isEmpty);
++  const blank = reports.length - filledReports.length;
++  if (blank > 0 && filledReports.length > 0) {
++    paperIssues.push({
++      severity: 'warning', category: 'Completeness',
++      message: `${blank} of ${reports.length} questions are still blank.`,
++    });
++  }
++
++  let score: number | null = null;
++  if (filledReports.length > 0) {
++    const avg = filledReports.reduce((a, r) => a + r.score, 0) / filledReports.length;
++    const cut = paperIssues.reduce((a, i) => a + (i.severity === 'error' ? 5 : i.severity === 'warning' ? 3 : 0), 0);
++    score = Math.max(0, Math.round(avg - cut));
++  }
++
++  const all = [...reports.flatMap((r) => r.issues), ...paperIssues];
++  return {
++    score,
++    grade: score === null ? null : gradeFor(score),
++    questions: reports,
++    paperIssues,
++    totals: {
++      questions: reports.length,
++      filled: filledReports.length,
++      errors: all.filter((i) => i.severity === 'error').length,
++      warnings: all.filter((i) => i.severity === 'warning').length,
++      infos: all.filter((i) => i.severity === 'info').length,
++    },
++    rbtCounts: balance.counts,
++  };
++}
++
++/** Plain-text version of the report, for copying into an email or notes. */
++export function reportToText(data: ExamData, report: PaperReport): string {
++  const lines: string[] = [];
++  lines.push(`Quality check — ${data.courseCode} ${data.courseName}`.trim());
++  lines.push(report.score === null ? 'Nothing to score yet.' : `Overall: ${report.score}/100 (${report.grade})`);
++  lines.push(`${report.totals.errors} errors, ${report.totals.warnings} warnings, ${report.totals.infos} notes`);
++  if (report.paperIssues.length) {
++    lines.push('', 'PAPER');
++    report.paperIssues.forEach((i) => lines.push(`  [${i.severity}] ${i.message}`));
++  }
++  let part = '';
++  for (const q of report.questions) {
++    if (q.partName !== part) { part = q.partName; lines.push('', part.toUpperCase()); }
++    lines.push(`Q${q.number}: ${q.isEmpty ? 'blank' : `${q.score}/100 ${q.grade}${q.rbtCode ? ` · ${q.rbtCode}` : ''}`}`);
++    q.issues.forEach((i) => {
++      lines.push(`  [${i.severity}] ${i.message}`);
++      if (i.fix) lines.push(`      → ${i.fix}`);
++    });
++  }
++  return lines.join('\n');
++}
