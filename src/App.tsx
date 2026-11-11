@@ -12,7 +12,8 @@ import {
   Image as ImageIcon,
   CheckCircle2,
   Printer,
-  Table2
+  Table2,
+  ShieldCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
@@ -34,6 +35,7 @@ import {
 import { loadBundledLogo, fileToPngDataUrl } from './lib/logo';
 import { MM, PAGE, USABLE_H, COL_W, mm, countColumns } from './lib/page';
 import { RbtTab } from './components/RbtTab';
+import { QualityTab } from './components/QualityTab';
 import type { RbtMeta } from './types';
 
 const PROGRAMS = [
@@ -363,7 +365,7 @@ export default function App() {
       return raw ? (JSON.parse(raw).savedAt ?? null) : null;
     } catch { return null; }
   });
-  const [activeTab, setActiveTab] = useState<'edit' | 'preview' | 'rbt'>('edit');
+  const [activeTab, setActiveTab] = useState<'edit' | 'preview' | 'rbt' | 'quality'>('edit');
   const [expandedPart, setExpandedPart] = useState<string | null>(null);
 
   // Custom programme entered through the "Others" option.
@@ -1688,6 +1690,16 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
                   <Table2 size={16} />
                   <span className="hidden sm:inline">RBT</span>
                 </button>
+                <button
+                  onClick={() => setActiveTab('quality')}
+                  className={cn(
+                    "px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2",
+                    activeTab === 'quality' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                  )}
+                >
+                  <ShieldCheck size={16} />
+                  <span className="hidden sm:inline">Quality</span>
+                </button>
               </div>
             </div>
           </div>
@@ -1696,10 +1708,12 @@ ${examData.collegeName?.trim() ? `    \\textbf{\\Large ${examData.collegeName}} 
 
       <main className={cn(
         "mx-auto px-4 sm:px-6 lg:px-8 py-8",
-        activeTab === 'preview' || activeTab === 'rbt' ? "max-w-[1300px]" : "max-w-5xl"
+        activeTab === 'preview' || activeTab === 'rbt' ? "max-w-[1300px]" : activeTab === 'quality' ? "max-w-6xl" : "max-w-5xl"
       )}>
         {activeTab === 'rbt' ? (
           <RbtTab examData={examData} setExamData={setExamData} formatDate={formatDate} />
+        ) : activeTab === 'quality' ? (
+          <QualityTab examData={examData} onGoToEdit={() => setActiveTab('edit')} />
         ) : activeTab === 'edit' ? (
           <div className="space-y-8">
             {/* Voice typing controls (language + maths mode + cheat sheet) */}

@@ -202,7 +202,17 @@ export function classifyRbt(questionText: string): RbtSuggestion {
       const level = Number(key) as RbtLevel;
 
       for (const verb of VERBS[level]) {
-        const idx = lower.indexOf(' ' + verb);
+        // Match the verb as a whole word. A plain prefix match let participles
+        // through — "shown below" scored as the verb "show", "defined by" as
+        // "define", "stated" as "state" — and tagged ordinary questions L1.
+        let idx = -1;
+        for (let from = 0; ; ) {
+          const found = lower.indexOf(' ' + verb, from);
+          if (found < 0) break;
+          const next = lower.charAt(found + 1 + verb.length);
+          if (!/[a-z]/.test(next)) { idx = found; break; }
+          from = found + 1;
+        }
         if (idx < 0) continue;
 
         // Position weighting: an imperative opening the first sentence is
